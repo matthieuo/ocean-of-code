@@ -14,7 +14,12 @@ class Coordinate:
     def __repr__(self):
         return f"({self._x}, {self._y})"
 
-
+    def __eq__(self, other):
+        return self._x == other._x and self._y == other._y
+    
+    def __hash__(self):
+        return hash((self._x, self._y))
+    
     def dist(self, c1):
         return abs(self._x - c1._x) + abs(self._y - c1._y)
     
@@ -51,6 +56,15 @@ class AdvAction:
         self._inv_path = []
         self._grid = grid
 
+        # initial search set
+        self._search_area = set()
+        for x in range(self._grid._width-1):
+            for y in range(self._grid._height-1):
+                self._search_area.add(Coordinate(x, y))
+
+    def reset_path(self):
+        self._path = []
+        self._inv_path = []
 
     def add_act(self, act):
         self._path.append(act)
@@ -72,23 +86,52 @@ class AdvAction:
             if e[0] == 'MOVE':
                 self.add_act(e[1])
                 print(f"added action {e[1]}", file=sys.stderr)
-                lv = self.check_all_grid(self._inv_path)
+                lv = self.check_search_area(self._path)
                 print(len(lv), file=sys.stderr)
+                
+                if len(lv)  < 50:
+                    print("****************", lv, file=sys.stderr)
                 if len(lv) == 1:
-                    #print("MSG I know ah ah ah ! ", lv[0])
+                    #print("MSG I know ah ah ah ! ")
                     print("****************", lv, file=sys.stderr)
                     return lv[0]
                     
             elif e[0] == 'SURFACE':
+                self.new_aera_surface(self, int(e[1]))
+                lv = self.check_search_area(self._path)
+                print("SUR", len(lv), file=sys.stderr)
+                
+                if len(lv)  < 50:
+                    print("**SUR", lv, file=sys.stderr)
+                    
+                if len(lv) == 1:
+                    #print("MSG I know ah ah ah ! ")
+                    print("****************", lv, file=sys.stderr)
+                    return lv[0]
                 #su = self.check_surface(self._inv_path,  int(e[1]))
                 #print("sur", len(su), file=sys.stderr)
                 #if len(su) < 10:
                 #    print("sssssssss", su, file=sys.stderr)
-                pass
                 #l_a.append(['S', int(e[1])])
-            else:
-                pass
-                #l_a.append(['T',int(e[1]),int(e[2])])
+            elif e[0] == 'SILENCE':
+                
+                lv = self.check_search_area(self._path)
+                if len(lv)  < 50:
+                    print("sil len", lv, file=sys.stderr)
+                self.reset_path()
+                new_search_area = set()
+                for c in lv:
+                    for i in range(-1, 2):
+                        new_search_area.add(Coordinate(min(max(c._x + i, 0), self._grid._width-1),
+                                                       c._y))
+                        
+                        new_search_area.add(Coordinate(c._x,
+                                                       min(max(c._y + i, 0), self._grid._height-1)))
+
+                print("new, old ", len(new_search_area), len(self._search_area), file=sys.stderr)
+                print(new_search_area, file=sys.stderr)
+                self._search_area = new_search_area
+                # add new start coord
             
         return None
 
@@ -96,18 +139,19 @@ class AdvAction:
         co_cur = co_st
         
         if self._grid.get_e(co_cur) == 'x':
-            return False
+            return None
         
         for p in path:
             co_cur = co_cur.act(p)
             #print(co_cur, file=sys.stderr)
             if not self._grid.valid_co(co_cur) or self._grid.get_e(co_cur) == 'x':
-                return False
+                return None
             
-        return True
+        return co_cur
 
-    def check_surface(self, path, s):
-        ret_co = []
+    def new_aera_surface(self, path, s):
+        new_search_area = set()
+
         if s == 1:
             rx, ry = (0, 0)
         elif s == 2:
@@ -129,18 +173,22 @@ class AdvAction:
             
         for x in range(rx, rx + 5):
             for y in range(ry, ry + 5):
-                if self.check_path(path, Coordinate(x, y)):
-                    ret_co.append(Coordinate(x, y))
+                last_co = self.check_path(self._inv_path, Coordinate(x,y))
+                if last_co is not None:
+                    new_search_area.add(last_co)
                     
-        return ret_co
+        print("SUR new, old ", len(new_search_area), len(self._search_area), file=sys.stderr)
+        #print(new_search_area, file=sys.stderr)
+        self._search_area = new_search_area
+                
             
-    def check_all_grid(self, path):
+    def check_search_area(self, path):
         ret_co = []
-        for x in range(self._grid._width-1):
-            for y in range(self._grid._height-1):
-                if self.check_path(path, Coordinate(x, y)):
-                    ret_co.append(Coordinate(x, y))
-        #print(self.check_path(path, Coordinate(0, 0)), file=sys.stderr)
+        for co in self._search_area:
+            last_co = self.check_path(path, co)
+            if last_co is not None:
+                ret_co.append(last_co)
+       
         return ret_co
                     
 
@@ -200,7 +248,7 @@ while True:
     # To debug: print("Debug messages...", file=sys.stderr)
     print(sonar_result, file=sys.stderr)
     print(opponent_orders, file=sys.stderr)
-
+    print("tor col", torpedo_cooldown, sonar_cooldown,file=sys.stderr) 
 
     grid[y][x]='o'
     
@@ -234,3 +282,4 @@ while True:
                     grid[i][j] = '.'
     else:
         print(f"MOVE {di} TORPEDO{add_str}")
+
