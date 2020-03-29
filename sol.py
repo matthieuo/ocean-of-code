@@ -50,6 +50,36 @@ class Grid:
         return self._grid[co._y][co._x]
         
 
+    def num_avail_pos(self, cur_pos):
+        """ return the number of possible positions when all actions are played"""
+
+        def rec_pos(cur_pos, hist):
+            hist.add(cur_pos)
+            
+            if not self.valid_co(cur_pos) or self.get_e(cur_pos) != '.':
+                return 0
+
+            #if cur_pos in hist:
+            #    return hist[cur_pos]
+            
+            sum_a = 1
+            for a in ['E', 'W', 'S', 'N']:
+                if cur_pos.act(a) in hist:
+                    continue
+                sum_a += rec_pos(cur_pos.act(a), hist)
+
+            #hist[cur_pos] = sum_a
+            return sum_a
+
+        ret_l = []
+        for a in ['E', 'W', 'S', 'N']:
+            ret_l.append((a, rec_pos(cur_pos.act(a), set())))
+            
+        return sorted(ret_l, key=lambda tup: tup[1], reverse=True)
+        
+
+    
+        
 class AdvAction:
     def __init__(self, grid):
         self._path = []
@@ -91,7 +121,7 @@ class AdvAction:
                 
                 if len(lv)  < 50:
                     print("****************", lv, file=sys.stderr)
-                if len(lv) < 10:
+                if len(lv) < 4:
                     #print("MSG I know ah ah ah ! ")
                     print("****************", lv, file=sys.stderr)
                     return lv[0]
@@ -104,7 +134,7 @@ class AdvAction:
                 if len(lv)  < 50:
                     print("**SUR", lv, file=sys.stderr)
                     
-                if len(lv) < 10:
+                if len(lv) < 4:
                     #print("MSG I know ah ah ah ! ")
                     print("****************", lv, file=sys.stderr)
                     return lv[0]
@@ -257,7 +287,14 @@ while True:
     grid[y][x]='o'
     
     adv_co = adv.process_adv_action(opponent_orders)
-    actions = ['N', 'E', 'S', 'W']
+
+    num_po_l = grd.num_avail_pos(Coordinate(x, y))
+
+    print("numplol", num_po_l, file=sys.stderr)
+
+    actions = [i[0] for i in num_po_l]
+    
+    #actions = ['N', 'E', 'S', 'W']
     
     if adv_co is not None:
         #ok we know where is the adv_co
