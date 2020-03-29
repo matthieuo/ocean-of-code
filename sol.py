@@ -58,8 +58,8 @@ class AdvAction:
 
         # initial search set
         self._search_area = set()
-        for x in range(self._grid._width-1):
-            for y in range(self._grid._height-1):
+        for x in range(self._grid._width):
+            for y in range(self._grid._height):
                 self._search_area.add(Coordinate(x, y))
 
     def reset_path(self):
@@ -91,7 +91,7 @@ class AdvAction:
                 
                 if len(lv)  < 50:
                     print("****************", lv, file=sys.stderr)
-                if len(lv) == 1:
+                if len(lv) < 10:
                     #print("MSG I know ah ah ah ! ")
                     print("****************", lv, file=sys.stderr)
                     return lv[0]
@@ -104,7 +104,7 @@ class AdvAction:
                 if len(lv)  < 50:
                     print("**SUR", lv, file=sys.stderr)
                     
-                if len(lv) == 1:
+                if len(lv) < 10:
                     #print("MSG I know ah ah ah ! ")
                     print("****************", lv, file=sys.stderr)
                     return lv[0]
@@ -184,11 +184,12 @@ class AdvAction:
             
     def check_search_area(self, path):
         ret_co = []
+        print("LEN search", len(self._search_area), file=sys.stderr)
         for co in self._search_area:
             last_co = self.check_path(path, co)
             if last_co is not None:
                 ret_co.append(last_co)
-       
+
         return ret_co
                     
 
@@ -239,6 +240,9 @@ print(f"{wr} {hr}")
 
 adv = AdvAction(grd)
 
+torpedo_p = 0
+silence_p = 0
+
 while True:
     x, y, my_life, opp_life, torpedo_cooldown, sonar_cooldown, silence_cooldown, mine_cooldown = [int(i) for i in input().split()]
     sonar_result = input()
@@ -253,7 +257,7 @@ while True:
     grid[y][x]='o'
     
     adv_co = adv.process_adv_action(opponent_orders)
-    actions = ['W', 'N', 'S', 'E']
+    actions = ['N', 'E', 'S', 'W']
     
     if adv_co is not None:
         #ok we know where is the adv_co
@@ -271,9 +275,10 @@ while True:
 
     add_str = ""
     if adv_co is not None:
-        if adv_co.dist(Coordinate(x, y)) < 4:
+        if adv_co.dist(Coordinate(x, y)) <= 4 and torpedo_p >= 3:
             add_str = f"|TORPEDO {adv_co._x} {adv_co._y}"
-        
+            torpedo_p -= 3
+            
     if di is None:
         print("SURFACE")
         for i in range(height):
@@ -281,5 +286,22 @@ while True:
                 if grid[i][j] == 'o':
                     grid[i][j] = '.'
     else:
-        print(f"MOVE {di} TORPEDO{add_str}")
-
+        if torpedo_p < 3 or add_str != "":
+            print(f"MOVE {di} TORPEDO{add_str}")
+            if add_str == "":
+                torpedo_p = torpedo_p + 1
+        else:
+            if silence_p >= 6:
+                cur_co = Coordinate(x,y)
+                for jj in range(5):
+                    n_co = cur_co.act(di)
+                    if  not (grd.valid_co(n_co) and grid[n_co._y][n_co._x] == '.'):
+                        break
+                    grid[cur_co._y][cur_co._x] = 'o'
+                    cur_co = n_co
+                    
+                print(f"SILENCE {di} {jj}")
+                silence_p = 0
+            else:
+                print(f"MOVE {di} SILENCE")
+                silence_p  += 1
