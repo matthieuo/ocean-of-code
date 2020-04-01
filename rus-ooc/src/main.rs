@@ -63,7 +63,6 @@ impl Action {
 
 	let mut v_ret = Vec::<Action>::new();
 	
-	let mut t = 0;
 	for s in st.split("|"){
 	    let vec_split: Vec<&str> = s.split(" ").collect();
 	    match vec_split[0]{
@@ -74,7 +73,7 @@ impl Action {
 		"SURFACE" => v_ret.push(Action {ac:Action_type::SURFACE,
 						dir:Direction::N,
 						coord: Coordinate {x:0, y:0},
-						sector: 0}),
+						sector: vec_split[1].parse::<u8>().unwrap()}),
 		"TORPEDO" => v_ret.push(Action {ac:Action_type::TORPEDO,
 						dir:Direction::N,
 						coord: Coordinate {x:vec_split[1].parse::<u8>().unwrap(), y:vec_split[2].parse::<u8>().unwrap()},
@@ -82,7 +81,7 @@ impl Action {
 		"SONAR" => v_ret.push(Action {ac:Action_type::SONAR,
 					      dir:Direction::N,
 					      coord: Coordinate {x:0, y:0},
-					      sector: vec_split[1].parse().unwrap()}),
+					      sector: vec_split[1].parse::<u8>().unwrap()}),
 		"SILENCE" => v_ret.push(Action {ac:Action_type::SILENCE,
 						dir:Direction::N,
 						coord: Coordinate {x:0, y:0},
@@ -225,6 +224,39 @@ impl Path {
 	return Path {path_dir:Vec::<Direction>::new(), path_coords:Vec::<Vec<Coordinate>>::new(),board: board}
     }
 
+
+    fn process_surface(&mut self, sector :u8) {
+	let mut rx:u8 = 0;
+	let mut ry:u8 = 0;
+	match sector {
+	    1 =>  {rx = 0; ry = 0},
+            2=> {rx=5; ry= 0},
+            3 => {rx=10; ry= 0},
+            4 => {rx=0; ry = 5},
+            5=>  {rx=5; ry = 5},
+            6 => {rx=10; ry = 5},
+            7 => {rx=0; ry = 10},
+            8 => {rx=5; ry = 10}, 
+            9 => {rx=10; ry= 10},
+	    _ => panic!("Bad sector"),
+	}
+	self.path_coords.retain(|ve| {
+	    let mut find = false;
+	    
+	    for x in rx..(rx + 5){
+		for y in ry..(ry + 5){
+                    if ve.last().unwrap() == &(Coordinate {x:x, y:y}) {
+			find = true;
+		    }
+		}
+		if find {
+		    break;
+		}
+	    }
+	    find
+	})
+    }
+    
     fn process_silence(&mut self) {
 	self.path_dir.clear();
 	self.path_coords.clear();
@@ -268,7 +300,7 @@ impl  Predictor  {
 	for a in v_act {
 	    match a.ac {
 		Action_type::MOVE => self.path.process_move(a.dir),
-		Action_type::SURFACE => {},
+		Action_type::SURFACE => self.path.process_surface(a.sector),
 		Action_type::TORPEDO =>  {},
 		Action_type::SONAR => {},
 		Action_type::SILENCE => self.path.process_silence(),
