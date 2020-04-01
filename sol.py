@@ -92,6 +92,41 @@ class AdvAction:
             for y in range(self._grid._height):
                 self._search_area.add(Coordinate(x, y))
 
+
+
+
+    def identify_sectors_search(self):
+
+        sector_elt = {}
+        for s in range(1, 10): # 9 sectors
+            sector_elt[s] = 0
+            
+            if s == 1:
+                rx, ry = (0, 0)
+            elif s == 2:
+                rx, ry = (5, 0)
+            elif s == 3:
+                rx, ry = (10, 0)
+            elif s == 4:
+                rx, ry = (0, 5)
+            elif s == 5:
+                rx, ry = (5, 5)
+            elif s == 6:
+                rx, ry = (10, 5)
+            elif s == 7:
+                rx, ry = (0, 10)
+            elif s == 8:
+                rx, ry = (5, 10)
+            else:
+                rx, ry = (10, 10)
+
+            for x in range(rx, rx + 5):
+                for y in range(ry, ry + 5):
+                    if Coordinate(x, y) in self._search_area:
+                        sector_elt[s] += 1
+
+        return sector_elt
+            
     def reset_path(self):
         self._path = []
         self._inv_path = []
@@ -282,8 +317,9 @@ while True:
     # To debug: print("Debug messages...", file=sys.stderr)
     print(sonar_result, file=sys.stderr)
     print(opponent_orders, file=sys.stderr)
-    print("tor col", torpedo_cooldown, sonar_cooldown,file=sys.stderr) 
-
+    #print("tor col", torpedo_cooldown, sonar_cooldown,file=sys.stderr)
+    
+    print("sect ", adv.identify_sectors_search(), file=sys.stderr)
     grid[y][x]='o'
     
     adv_co = adv.process_adv_action(opponent_orders)
