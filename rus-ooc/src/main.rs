@@ -143,7 +143,7 @@ impl Board {
 	Board {grid:r}
     }
 
-  
+    //return the coord following the direction if correct
     fn check_dir(&self, c: &Coordinate, dir: &Direction) -> Option<Coordinate>  {
 	let mut xl = c.x as i8;
 	let mut yl = c.y as i8;
@@ -214,26 +214,26 @@ impl Board {
 // ------------------------- predictor ------------------
 #[derive(Debug)]
 struct Path {
-    path_dir: Vec::<Direction>,
     path_coords: Vec::<Vec<Coordinate>>,
     board: Board,
 }
 
 impl Path {
     fn new(board: Board) -> Path{
-	return Path {path_dir:Vec::<Direction>::new(), path_coords:Vec::<Vec<Coordinate>>::new(),board: board}
+	return Path { path_coords:Vec::<Vec<Coordinate>>::new(),board: board}
     }
 
 
     fn process_surface(&mut self, sector :u8) {
+	eprintln!("Process surface");
 	let mut rx:u8 = 0;
 	let mut ry:u8 = 0;
 	match sector {
-	    1 =>  {rx = 0; ry = 0},
-            2=> {rx=5; ry= 0},
+	    1 => {rx=0; ry=0},
+            2 => {rx=5; ry= 0},
             3 => {rx=10; ry= 0},
             4 => {rx=0; ry = 5},
-            5=>  {rx=5; ry = 5},
+            5 => {rx=5; ry = 5},
             6 => {rx=10; ry = 5},
             7 => {rx=0; ry = 10},
             8 => {rx=5; ry = 10}, 
@@ -258,11 +258,39 @@ impl Path {
     }
     
     fn process_silence(&mut self) {
-	self.path_dir.clear();
-	self.path_coords.clear();
+	eprintln!("Process SILENCE");
+	let mut p_coords_l = Vec::<Vec<Coordinate>>::new();
+	
+	for v in self.path_coords.iter() {
+	    //add new possible coord for each paths
+	    p_coords_l.push(v.to_vec()); //adv can make a 0 move
+	    
+	    
+	    for d in [Direction::N, Direction::S, Direction::W, Direction::E].iter() {
+		let mut cur_pos:Coordinate = *v.last().unwrap();
+		for i in 1..5 {
+		    match self.board.check_dir(&cur_pos, &d) {
+			Some(c_valid) =>
+			{
+			    if !v.contains(&c_valid) {
+				//if c_valid is in v, this means a cross between path -> invalid
+				let mut v_c = v.to_vec();
+				v_c.push(c_valid);
+				p_coords_l.push(v_c);
+				cur_pos = c_valid;
+			    }
+			},
+			None    => break,
+		    }
+		     
+		}
+	    }
+	}
+	self.path_coords = p_coords_l ;
     }
+    
     fn process_move(&mut self, d: Direction) {
-	self.path_dir.push(d);
+	//self.path_dir.push(d);
 	
 	if self.path_coords.is_empty() {
 	    for x in 0..MAX_X {
@@ -311,14 +339,20 @@ impl  Predictor  {
 	}
     }
     fn get_possible_pos(&self) {
-	eprintln!("Num possible pos {}", self.path.path_coords.len());
-	if self.path.path_coords.len() < 5
+	let mut set = HashSet::<Coordinate>::new();
+	
+	for v in self.path.path_coords.iter() {
+	    set.insert(*v.last().unwrap());
+	}
+	eprintln!("Num possible path {}", self.path.path_coords.len());
+	eprintln!("Num possible coord {}", set.len());
+	/*if self.path.path_coords.len() < 5
 	{
 	    for p in &self.path.path_coords
 		{
 		    eprintln!("{:?}",p.last().unwrap());
 		}
-	}
+	}*/
 
     }
 }
