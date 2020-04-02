@@ -1,6 +1,7 @@
 use std::io;
 use std::convert::TryInto;
 use std::collections::HashSet;
+use std::collections::HashMap;
 use std::cmp::Reverse;
 use std::str::FromStr;
 extern crate rand;
@@ -259,25 +260,45 @@ impl Path {
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
+	let max_search:u8 = 20;
 	let mut p_coords_l = Vec::<Vec<Coordinate>>::new();
+
+	let mut hist_set = HashMap::<Coordinate, u8>::new();
 	
 	for v in self.path_coords.iter() {
 	    //add new possible coord for each paths
-	    p_coords_l.push(v.to_vec()); //adv can make a 0 move
-	    
+	    //adv can make a 0 move
+
+	    let count = hist_set.entry(*v.last().unwrap()).or_insert(0);
+	    *count += 1;
+	    if hist_set.get(v.last().unwrap()).unwrap() < &max_search {
+		p_coords_l.push(v.to_vec());
+	    }
+
+	   
 	    
 	    for d in [Direction::N, Direction::S, Direction::W, Direction::E].iter() {
-		let mut cur_pos:Coordinate = *v.last().unwrap();
+		
+		let mut cur_path:Vec::<Coordinate> = v.to_vec();
+		let mut cur_pos:Coordinate = *cur_path.last().unwrap();
+		
 		for i in 1..5 {
 		    match self.board.check_dir(&cur_pos, &d) {
 			Some(c_valid) =>
 			{
-			    if !v.contains(&c_valid) {
+			    if !cur_path.contains(&c_valid) {
 				//if c_valid is in v, this means a cross between path -> invalid
-				let mut v_c = v.to_vec();
-				v_c.push(c_valid);
-				p_coords_l.push(v_c);
+				
+				cur_path.push(c_valid);
+
+				let count = hist_set.entry(c_valid).or_insert(0);
+				*count += 1;
+				if hist_set.get(&c_valid).unwrap() < &max_search {
+				    p_coords_l.push(cur_path.to_vec()); //explicit copy
+				}
+				
 				cur_pos = c_valid;
+
 			    }
 			},
 			None    => break,
@@ -346,13 +367,14 @@ impl  Predictor  {
 	}
 	eprintln!("Num possible path {}", self.path.path_coords.len());
 	eprintln!("Num possible coord {}", set.len());
-	/*if self.path.path_coords.len() < 5
+	if set.len() < 50
 	{
-	    for p in &self.path.path_coords
-		{
-		    eprintln!("{:?}",p.last().unwrap());
-		}
-	}*/
+	    for p in &set
+	    {
+		eprintln!("{:?}",p);
+	    }
+	}
+
 
     }
 }
