@@ -450,6 +450,7 @@ impl  Predictor  {
 		}
 	    },
 	}
+	
 	let e = self.play_board.num_avail_pos(&self.cur_co);
 	if e[0].0 != 0 {
 
@@ -466,7 +467,7 @@ impl  Predictor  {
 	    else {
 		v_act.push(Action { ac: Action_type::MOVE, dir:e[0].1, ac_load:Action_type::SILENCE, ..Default::default() });
 		self.silence += 1;
-		self.silence = cmp::min(self.torpedo,6);
+		self.silence = cmp::min(self.silence,6);
 	    }
 	}
 	else {
