@@ -11,6 +11,7 @@ use std::fmt;
 const MAX_X:u8 = 15;
 const MAX_Y:u8 = 15;
 
+
 #[derive( Copy, Clone,Debug)]
 enum Direction {
     N,S,E,W,
@@ -334,7 +335,7 @@ impl Path {
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
-	let max_search:usize = 20;
+	let max_search:usize = 500;
 	let mut p_coords_l = Vec::<(u32,Vec::<Coordinate>)>::new();
 
 	if self.path_coords.len() > max_search {
@@ -405,11 +406,81 @@ impl Path {
 	    //remove all element empty
 	    self.path_coords.retain(|(freq, ve)| !ve.is_empty())
 	}
-    }	    
+    }
+
+    fn process_actions(&mut self, v_act:&Vec<Action>) {
+	for a in v_act {
+	    match a.ac {
+		Action_type::MOVE => self.process_move(a.dir),
+		Action_type::SURFACE => self.process_surface(a.sector),
+		Action_type::TORPEDO =>  self.process_torpedo(a.coord),
+		Action_type::SONAR => {},
+		Action_type::SILENCE => self.process_silence(),
+		Action_type::MINE => {},
+		Action_type::TRIGGER => {},
+	    }   
+	}
+    }
+
+        
+    fn get_possible_pos(&self) ->  Option<Coordinate> {
+		
+	let reduced_v = Path::_reduce_search_space(&self.path_coords);
+	
+	eprintln!("Num possible coord {}", reduced_v.len());
+	eprintln!("Num possible path {}", self.path_coords.len());
+
+	let mut xm:f32 = -1.0;
+	let mut ym:f32 = -1.0;
+
+	let mut tot:u32 = 0;
+	for (freq, el_v) in &reduced_v {
+	    let el = el_v.last().unwrap();
+	    
+	    if xm < 0.0 {
+		xm = (*freq*el.x as u32) as f32;
+		ym = (*freq*el.y as u32) as f32;
+		tot += freq;
+	    }
+	    else {
+		xm += (*freq*el.x as u32) as f32;
+		ym += (*freq*el.y as u32) as f32;
+		tot += *freq;
+	    }
+	    
+	}
+
+	xm /= tot as f32;
+	ym /= tot as f32;
+
+	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
+
+	
+	eprintln!("round {:?}", round_coord);
+	if reduced_v.len() < 20
+	{
+	    for (f,v_p) in &reduced_v
+	    {
+		eprintln!("freq : {}, val : {:?}",f, v_p.last().unwrap());
+	    }
+	}
+
+	if reduced_v.len() < 10 {
+	    eprintln!("inf 10, on est ~sur");
+	    Some(round_coord)
+	}
+	else {
+	    None
+	}
+	   
+    }
+
 }
 #[derive(Debug)]
 struct Predictor {
     path: Path,
+    my_path: Path,
+    
     op_life: Vec::<u8>,
     cur_co: Coordinate,
     play_board: Board,
@@ -424,6 +495,7 @@ struct Predictor {
 impl  Predictor  {
     fn new(board: Board) -> Predictor{
 	return Predictor {path: Path::new(board),
+			  my_path: Path::new(board),
 			  op_life:Vec::<u8>::new(),
 			  cur_co: Coordinate {x:0,y:0},
 			  actions_issued:Vec::<Action>::new(),
@@ -440,10 +512,10 @@ impl  Predictor  {
 
 	let mut v_act = Vec::<Action>::new();
 	
-	match self.get_possible_pos() {
+	match self.path.get_possible_pos() {
 	    None =>  eprintln!("Action: no confidence"),
             Some(coord) => {
-		if coord.dist(&self.cur_co) <=4 && self.torpedo == 3 {
+		if coord.dist(&self.cur_co) <=4 && coord.dist(&self.cur_co) > 1 && self.torpedo == 3 {
 		    
 		    v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 		    self.torpedo = 0;
@@ -491,88 +563,26 @@ impl  Predictor  {
 	    let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
 	    match diff {
 		1 => {
-		    eprintln!("torp touch 1!");
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) <= 5});
+		    eprintln!("torp touch 1! coord {:?}", coord_torpedo);
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 1});
+		    //eprintln!("re {:?}", self.path.path_coords.last().unwrap() );
 		},
 		2 => {
-		    eprintln!("torp touch 2!");
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) <= 4});
+		    eprintln!("torp touch 2! coord {:?}", coord_torpedo);
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 0});
+		    //eprintln!("re {:?}", self.path.path_coords.last().unwrap() );
 		},
 		_ => {
-		    eprintln!("torp NO touch");
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) > 5});
+		    eprintln!("torp NO touch  coord {:?}", coord_torpedo);
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) > 1});
 		}
 		    
 	    }
 
 	}
     }
-    fn process_adv_action(&mut self, v_act:Vec<Action>) {
-	for a in v_act {
-	    match a.ac {
-		Action_type::MOVE => self.path.process_move(a.dir),
-		Action_type::SURFACE => self.path.process_surface(a.sector),
-		Action_type::TORPEDO =>  self.path.process_torpedo(a.coord),
-		Action_type::SONAR => {},
-		Action_type::SILENCE => self.path.process_silence(),
-		Action_type::MINE => {},
-		Action_type::TRIGGER => {},
-	    }
-	    
-	}
-    }
-    fn get_possible_pos(&self) ->  Option<Coordinate> {
-		
-	let reduced_v = Path::_reduce_search_space(&self.path.path_coords);
-	
-	eprintln!("Num possible coord {}", reduced_v.len());
-	eprintln!("Num possible path {}", self.path.path_coords.len());
 
-	let mut xm:f32 = -1.0;
-	let mut ym:f32 = -1.0;
 
-	let mut tot:u32 = 0;
-	for (freq, el_v) in &reduced_v {
-	    let el = el_v.last().unwrap();
-	    
-	    if xm < 0.0 {
-		xm = (*freq*el.x as u32) as f32;
-		ym = (*freq*el.y as u32) as f32;
-		tot += freq;
-	    }
-	    else {
-		xm += (*freq*el.x as u32) as f32;
-		ym += (*freq*el.y as u32) as f32;
-		tot += *freq;
-	    }
-	    
-	}
-
-	xm /= tot as f32;
-	ym /= tot as f32;
-
-	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
-
-	
-	eprintln!("round {:?}", round_coord);
-	if reduced_v.len() < 20
-	{
-	    for (f,v_p) in &reduced_v
-	    {
-		eprintln!("freq : {}, val : {:?}",f, v_p.last().unwrap());
-	    }
-	}
-
-	if reduced_v.len() < 10 {
-	    eprintln!("inf 10, on est ~sur");
-	    Some(round_coord)
-	}
-	else {
-	    None
-	}
-	   
-
-    }
 }
 macro_rules! parse_input {
     ($x:expr, $t:ident) => ($x.trim().parse::<$t>().unwrap())
@@ -632,10 +642,11 @@ fn main() {
         // To debug: eprintln!("Debug message...");
 
 	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8);
-	predictor.process_adv_action(Action::parse_raw(&opponent_orders));
-	predictor.get_possible_pos();
-
-	println!("{}",Action::repr_action_v(&predictor.get_actions_to_play()));
+	predictor.path.process_actions(&Action::parse_raw(&opponent_orders));
+	predictor.path.get_possible_pos();
+	let v_acts = predictor.get_actions_to_play();
+	//predictor.my_path.process_actions(&v_acts);
+	println!("{}",&Action::repr_action_v(&v_acts));
 
     }
 }
