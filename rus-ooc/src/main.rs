@@ -16,6 +16,9 @@ enum Direction {
     N,S,E,W,
 }
 
+impl Default for Direction {
+    fn default() -> Self { Direction::N }
+}
 impl FromStr for Direction {
     //type Err = std::num::ParseIntError;
     type Err = ();
@@ -29,14 +32,17 @@ impl FromStr for Direction {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug,Copy, Clone)]
 enum Action_type {
     MOVE, SURFACE, TORPEDO, SONAR, SILENCE, MINE, TRIGGER,
 }
 
+impl Default for Action_type {
+    fn default() -> Self { Action_type::MOVE }
+}
 
 // --- coordinate
-#[derive(PartialEq, Eq, Hash, Copy, Clone,Debug)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone,Debug,  Default)]
 struct Coordinate {
     x: u8,
     y: u8,
@@ -48,13 +54,14 @@ impl Coordinate {
     }
 }
 
-// ----------- Action
-#[derive(Debug)]
+// ----------- Action 
+#[derive(Debug, Default,Copy, Clone)]
 struct Action {
     ac: Action_type,
     dir: Direction,
     coord: Coordinate,
     sector: u8,
+    ac_load: Action_type, //only for load
 }
 
 /*impl fmt::Display for Point {
@@ -72,6 +79,25 @@ struct Action {
 }*/
     
 impl Action {
+    fn repr_action_v(va :&Vec::<Action>) -> String{
+	let mut out:String = "".to_string();
+	
+	for (idx, a) in va.iter().enumerate() {
+	    if idx > 0 {
+		out = format!("{}|", out);
+	    }
+	    match a.ac {
+		Action_type::MOVE => out = format!("{}MOVE {:?} {:?}",out, a.dir, a.ac_load),
+		Action_type::SURFACE => out = format!("{}SURFACE", out),
+		Action_type::TORPEDO => out = format!("{}TORPEDO {} {}", out, a.coord.x, a.coord.y),
+		Action_type::SONAR => out = format!("{}SONAR {}", out, a.sector),
+		Action_type::SILENCE => out = format!("{}SILENCE {:?} {}", out, a.dir, a.sector),
+		Action_type::MINE => panic!("no mines"),
+		Action_type::TRIGGER => panic!("no trig"),
+	    }
+	}
+	out
+    }
     fn parse_raw(st: &str) -> Vec::<Action> {
 	if st == "NA" {
 	    return Vec::<Action>::new();
@@ -85,34 +111,42 @@ impl Action {
 		"MOVE" => v_ret.push(Action {ac:Action_type::MOVE,
 					     dir:vec_split[1].parse::<Direction>().unwrap(),
 					     coord: Coordinate {x:0, y:0},
-					     sector: 0}),
+					     sector: 0,
+					     ac_load:Action_type::TORPEDO}),
 		"SURFACE" => v_ret.push(Action {ac:Action_type::SURFACE,
 						dir:Direction::N,
 						coord: Coordinate {x:0, y:0},
-						sector: vec_split[1].parse::<u8>().unwrap()}),
+						sector: vec_split[1].parse::<u8>().unwrap(),
+						ac_load:Action_type::TORPEDO}),
 		"TORPEDO" => v_ret.push(Action {ac:Action_type::TORPEDO,
 						dir:Direction::N,
 						coord: Coordinate {x:vec_split[1].parse::<u8>().unwrap(), y:vec_split[2].parse::<u8>().unwrap()},
-						sector: 0}),
+						sector: 0,
+						ac_load:Action_type::TORPEDO}),
 		"SONAR" => v_ret.push(Action {ac:Action_type::SONAR,
 					      dir:Direction::N,
 					      coord: Coordinate {x:0, y:0},
-					      sector: vec_split[1].parse::<u8>().unwrap()}),
+					      sector: vec_split[1].parse::<u8>().unwrap(),
+					      ac_load:Action_type::TORPEDO}),
 		"SILENCE" => v_ret.push(Action {ac:Action_type::SILENCE,
 						dir:Direction::N,
 						coord: Coordinate {x:0, y:0},
-						sector: 0}),
+						sector: 0,
+						ac_load:Action_type::TORPEDO}),
 		"MINE" => v_ret.push(Action {ac:Action_type::MINE,
 					     dir:Direction::N,
 					     coord: Coordinate {x:0, y:0},
-					     sector: 0}),
+					     sector: 0,
+					     ac_load:Action_type::TORPEDO}),
 		"TRIGGER" => v_ret.push(Action {ac:Action_type::TRIGGER,
 						dir:Direction::N,
 						coord: Coordinate {x:vec_split[1].parse::<u8>().unwrap(), y:vec_split[2].parse::<u8>().unwrap()},
-						sector: 0}),
+						sector: 0,
+						ac_load:Action_type::TORPEDO}),
 		_ => panic!("Bad action"),
 	    }
 	}
+	
 	v_ret
     }
 }
@@ -230,19 +264,20 @@ impl Board {
 // ------------------------- predictor ------------------
 #[derive(Debug)]
 struct Path {
-    path_coords: Vec::<Vec<Coordinate>>,
+    path_coords: Vec::<(u32, Vec::<Coordinate>)>,
+
     board: Board,
 }
 
 impl Path {
     fn new(board: Board) -> Path{
-	return Path { path_coords:Vec::<Vec<Coordinate>>::new(),board: board}
+	return Path { path_coords:Vec::<(u32, Vec::<Coordinate>)>::new(),board: board}
     }
 
     fn process_torpedo(&mut self, co_t :Coordinate) {
 	eprintln!("Process torpedo");
 
-	self.path_coords.retain(|ve| {ve.last().unwrap().dist(&co_t) <= 4});
+	self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&co_t) <= 4});
     }
 
     fn process_surface(&mut self, sector :u8) {
@@ -261,7 +296,7 @@ impl Path {
             9 => {rx=10; ry= 10},
 	    _ => panic!("Bad sector"),
 	}
-	self.path_coords.retain(|ve| {
+	self.path_coords.retain(|(_freq,ve)| {
 	    let mut find = false;
 	    
 	    for x in rx..(rx + 5){
@@ -277,24 +312,44 @@ impl Path {
 	    find
 	})
     }
+
+    fn _reduce_search_space(v_coord :&Vec::<(u32,Vec::<Coordinate>)>) -> Vec::<(u32,Vec::<Coordinate>)> {
+	//ok reduce search space
+	let mut p_coords_reduced = Vec::<(u32,Vec::<Coordinate>)>::new();
+	
+	let mut frequency: HashMap<&Coordinate, u32> = HashMap::new();
+	
+	for (freq, coord) in v_coord { 
+	    *frequency.entry(coord.last().unwrap()).or_insert(0) += *freq;
+	}
+	//eprintln!("FREQ {:?}", frequency);
+	
+	//update the path
+	//self.path_coords.clear();
+	for (co,freq) in &frequency {
+	    p_coords_reduced.push((*freq,vec![**co]));
+	}
+	p_coords_reduced
+    }
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
-	let max_search:u8 = 20;
-	let mut p_coords_l = Vec::<Vec<Coordinate>>::new();
+	let max_search:usize = 20;
+	let mut p_coords_l = Vec::<(u32,Vec::<Coordinate>)>::new();
 
-	let mut hist_set = HashMap::<Coordinate, u8>::new();
+	if self.path_coords.len() > max_search {
+	    eprintln!("REDUCE size before : {}", self.path_coords.len());
+
+	    self.path_coords =  Path::_reduce_search_space(&self.path_coords);
+	    
+	    eprintln!("REDUCE size after : {}", self.path_coords.len());
+	}
 	
-	for v in self.path_coords.iter() {
+	for (freq,v) in self.path_coords.iter() {
 	    //add new possible coord for each paths
 	    //adv can make a 0 move
 
-	    let count = hist_set.entry(*v.last().unwrap()).or_insert(0);
-	    *count += 1;
-	    if hist_set.get(v.last().unwrap()).unwrap() < &max_search {
-		p_coords_l.push(v.to_vec());
-	    }
-
+	    p_coords_l.push((1, v.to_vec()));
 	   
 	    
 	    for d in [Direction::N, Direction::S, Direction::W, Direction::E].iter() {
@@ -311,11 +366,8 @@ impl Path {
 				
 				cur_path.push(c_valid);
 
-				let count = hist_set.entry(c_valid).or_insert(0);
-				*count += 1;
-				if hist_set.get(&c_valid).unwrap() < &max_search {
-				    p_coords_l.push(cur_path.to_vec()); //explicit copy
-				}
+				p_coords_l.push((1,cur_path.to_vec())); //explicit copy
+
 				
 				cur_pos = c_valid;
 
@@ -336,12 +388,12 @@ impl Path {
 	if self.path_coords.is_empty() {
 	    for x in 0..MAX_X {
 		for y in 0..MAX_Y {
-		    self.path_coords.push(vec![Coordinate {x:x, y:y}]);
+		    self.path_coords.push((1,vec![Coordinate {x:x, y:y}]));
 		}
 	    }
 	}
 	else {
-	    for p in self.path_coords.iter_mut() {
+	    for (feq,p) in self.path_coords.iter_mut() {
 		match self.board.check_dir(p.last().unwrap(), &d) {
 		    Some(c_valid) => {
 			p.push(c_valid);
@@ -351,7 +403,7 @@ impl Path {
 		}
 	    }
 	    //remove all element empty
-	    self.path_coords.retain(|ve| !ve.is_empty())
+	    self.path_coords.retain(|(freq, ve)| !ve.is_empty())
 	}
     }	    
 }
@@ -366,22 +418,34 @@ struct Predictor {
     silence :u8,
     sonar :u8,
     mine: u8,
+    actions_issued: Vec::<Action>,
 }
 
 impl  Predictor  {
     fn new(board: Board) -> Predictor{
-	return Predictor {path: Path::new(board), op_life:Vec::<u8>::new(), cur_co: Coordinate {x:0,y:0}, my_life:0, play_board:board, torpedo:0, silence:0, sonar:0, mine:0};
+	return Predictor {path: Path::new(board),
+			  op_life:Vec::<u8>::new(),
+			  cur_co: Coordinate {x:0,y:0},
+			  actions_issued:Vec::<Action>::new(),
+			  my_life:0,
+			  play_board:board,
+			  torpedo:0,
+			  silence:0,
+			  sonar:0,
+			  mine:0};
     }
 
     //to do dont print!
-    fn get_actions_to_play(&mut self) {
+    fn get_actions_to_play(&mut self) -> Vec::<Action> {
 
-	let mut add_str:String = "".to_string();
+	let mut v_act = Vec::<Action>::new();
+	
 	match self.get_possible_pos() {
-	    None =>  eprintln!("Actio: no enought confidence"),
+	    None =>  eprintln!("Action: no confidence"),
             Some(coord) => {
 		if coord.dist(&self.cur_co) <=4 {
-		    add_str = format!("TORPEDO {} {}|",coord.x, coord.y);
+		    
+		    v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 		    self.torpedo = 0;
 		}
 	    },
@@ -390,25 +454,28 @@ impl  Predictor  {
 	if e[0].0 != 0 {
 
 	    if self.silence == 6 {
-		println!("{}SILENCE {:?} 1", add_str,e[0].1);
+		v_act.push(Action { ac: Action_type::SILENCE, dir:e[0].1, sector:1, ..Default::default() });
 		self.silence = 0;
 	    }
 	    
 	    else if self.torpedo < 3 {
-		println!("{}MOVE {:?} TORPEDO", add_str,e[0].1);
+		v_act.push(Action { ac: Action_type::MOVE, dir:e[0].1, ac_load:Action_type::TORPEDO, ..Default::default() });
 		self.torpedo += 1;
 		self.torpedo = cmp::min(self.torpedo,3);
 	    }
 	    else {
-		println!("{}MOVE {:?} SILENCE", add_str,e[0].1);
+		v_act.push(Action { ac: Action_type::MOVE, dir:e[0].1, ac_load:Action_type::SILENCE, ..Default::default() });
 		self.silence += 1;
 		self.silence = cmp::min(self.torpedo,6);
 	    }
 	}
 	else {
 	    self.play_board.rem_visited();
-	    println!("{}SURFACE",add_str)
+	    v_act.push(Action { ac: Action_type::SURFACE, ..Default::default() });
+	    //println!("{}SURFACE",add_str)
 	}
+	self.actions_issued = v_act.to_vec(); //copy here
+	v_act
     }
     fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8) {
 	self.op_life.push(opp_life);
@@ -431,47 +498,48 @@ impl  Predictor  {
 	}
     }
     fn get_possible_pos(&self) ->  Option<Coordinate> {
-	let mut set = HashSet::<Coordinate>::new();
+		
+	let reduced_v = Path::_reduce_search_space(&self.path.path_coords);
 	
-	for v in self.path.path_coords.iter() {
-	    set.insert(*v.last().unwrap());
-	}
-
-	
+	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", self.path.path_coords.len());
-	eprintln!("Num possible coord {}", set.len());
 
 	let mut xm:f32 = -1.0;
 	let mut ym:f32 = -1.0;
+
+	let mut tot:u32 = 0;
+	for (freq, el_v) in &reduced_v {
+	    let el = el_v.last().unwrap();
 	    
-	for el in &set {
 	    if xm < 0.0 {
-		xm = el.x as f32;
-		ym = el.y as f32;
+		xm = (*freq*el.x as u32) as f32;
+		ym = (*freq*el.y as u32) as f32;
+		tot += freq;
 	    }
 	    else {
-		xm += el.x as f32;
-		ym += el.y as f32;
+		xm += (*freq*el.x as u32) as f32;
+		ym += (*freq*el.y as u32) as f32;
+		tot += *freq;
 	    }
 	    
 	}
 
-	xm /= set.len() as f32;
-	ym /= set.len() as f32;
+	xm /= tot as f32;
+	ym /= tot as f32;
 
 	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
 
 	
 	eprintln!("round {:?}", round_coord);
-	if set.len() < 20
+	if reduced_v.len() < 20
 	{
-	    for p in &set
+	    for (f,v_p) in &reduced_v
 	    {
-		eprintln!("{:?}",p);
+		eprintln!("freq : {}, val : {:?}",f, v_p.last().unwrap());
 	    }
 	}
 
-	if set.len() < 10 {
+	if reduced_v.len() < 10 {
 	    eprintln!("inf 10, on est ~sur");
 	    Some(round_coord)
 	}
@@ -543,7 +611,7 @@ fn main() {
 	predictor.process_adv_action(Action::parse_raw(&opponent_orders));
 	predictor.get_possible_pos();
 
-	predictor.get_actions_to_play();
+	println!("{}",Action::repr_action_v(&predictor.get_actions_to_play()));
 
     }
 }
