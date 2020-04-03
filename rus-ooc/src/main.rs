@@ -3,10 +3,11 @@ use std::convert::TryInto;
 use std::collections::HashSet;
 use std::collections::HashMap;
 use std::cmp::Reverse;
+use std::cmp;
 use std::str::FromStr;
 extern crate rand;
 use rand::Rng;
-
+use std::fmt;
 const MAX_X:u8 = 15;
 const MAX_Y:u8 = 15;
 
@@ -56,6 +57,20 @@ struct Action {
     sector: u8,
 }
 
+/*impl fmt::Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+	    match self.ac {
+		Action_type::MOVE => write!(f, "MOVE {:?}", self.coord.dir),
+		Action_type::SURFACE => write!(f, "SURFACE"),
+		Action_type::TORPEDO => write!(f, "TORPEDO {}, {}", self.coord.x, self.coord.y),
+		Action_type::SONAR => {},
+		Action_type::SILENCE => write!(f, "SILENCE"),
+		Action_type::MINE => {},
+		Action_type::TRIGGER => {},
+	    }
+    }
+}*/
+    
 impl Action {
     fn parse_raw(st: &str) -> Vec::<Action> {
 	if st == "NA" {
@@ -224,6 +239,11 @@ impl Path {
 	return Path { path_coords:Vec::<Vec<Coordinate>>::new(),board: board}
     }
 
+    fn process_torpedo(&mut self, co_t :Coordinate) {
+	eprintln!("Process torpedo");
+
+	self.path_coords.retain(|ve| {ve.last().unwrap().dist(&co_t) <= 4});
+    }
 
     fn process_surface(&mut self, sector :u8) {
 	eprintln!("Process surface");
@@ -311,7 +331,7 @@ impl Path {
     }
     
     fn process_move(&mut self, d: Direction) {
-	//self.path_dir.push(d);
+	eprintln!("Process MOVE");
 	
 	if self.path_coords.is_empty() {
 	    for x in 0..MAX_X {
@@ -338,19 +358,70 @@ impl Path {
 #[derive(Debug)]
 struct Predictor {
     path: Path,
+    op_life: Vec::<u8>,
+    cur_co: Coordinate,
+    play_board: Board,
+    my_life: u8,
+    torpedo :u8,
+    silence :u8,
+    sonar :u8,
+    mine: u8,
 }
 
 impl  Predictor  {
     fn new(board: Board) -> Predictor{
-	return Predictor {path: Path::new(board)};
+	return Predictor {path: Path::new(board), op_life:Vec::<u8>::new(), cur_co: Coordinate {x:0,y:0}, my_life:0, play_board:board, torpedo:0, silence:0, sonar:0, mine:0};
     }
 
+    //to do dont print!
+    fn get_actions_to_play(&mut self) {
+
+	let mut add_str:String = "".to_string();
+	match self.get_possible_pos() {
+	    None =>  eprintln!("Actio: no enought confidence"),
+            Some(coord) => {
+		if coord.dist(&self.cur_co) <=4 {
+		    add_str = format!("TORPEDO {} {}|",coord.x, coord.y);
+		    self.torpedo = 0;
+		}
+	    },
+	}
+	let e = self.play_board.num_avail_pos(&self.cur_co);
+	if e[0].0 != 0 {
+
+	    if self.silence == 6 {
+		println!("{}SILENCE {:?} 1", add_str,e[0].1);
+		self.silence = 0;
+	    }
+	    
+	    else if self.torpedo < 3 {
+		println!("{}MOVE {:?} TORPEDO", add_str,e[0].1);
+		self.torpedo += 1;
+		self.torpedo = cmp::min(self.torpedo,3);
+	    }
+	    else {
+		println!("{}MOVE {:?} SILENCE", add_str,e[0].1);
+		self.silence += 1;
+		self.silence = cmp::min(self.torpedo,6);
+	    }
+	}
+	else {
+	    self.play_board.rem_visited();
+	    println!("{}SURFACE",add_str)
+	}
+    }
+    fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8) {
+	self.op_life.push(opp_life);
+	self.cur_co = Coordinate {x:x,y:y};
+	self.play_board.set_visited(&self.cur_co);
+	self.my_life = my_life;
+    }
     fn process_adv_action(&mut self, v_act:Vec<Action>) {
 	for a in v_act {
 	    match a.ac {
 		Action_type::MOVE => self.path.process_move(a.dir),
 		Action_type::SURFACE => self.path.process_surface(a.sector),
-		Action_type::TORPEDO =>  {},
+		Action_type::TORPEDO =>  self.path.process_torpedo(a.coord),
 		Action_type::SONAR => {},
 		Action_type::SILENCE => self.path.process_silence(),
 		Action_type::MINE => {},
@@ -359,15 +430,40 @@ impl  Predictor  {
 	    
 	}
     }
-    fn get_possible_pos(&self) {
+    fn get_possible_pos(&self) ->  Option<Coordinate> {
 	let mut set = HashSet::<Coordinate>::new();
 	
 	for v in self.path.path_coords.iter() {
 	    set.insert(*v.last().unwrap());
 	}
+
+	
 	eprintln!("Num possible path {}", self.path.path_coords.len());
 	eprintln!("Num possible coord {}", set.len());
-	if set.len() < 50
+
+	let mut xm:f32 = -1.0;
+	let mut ym:f32 = -1.0;
+	    
+	for el in &set {
+	    if xm < 0.0 {
+		xm = el.x as f32;
+		ym = el.y as f32;
+	    }
+	    else {
+		xm += el.x as f32;
+		ym += el.y as f32;
+	    }
+	    
+	}
+
+	xm /= set.len() as f32;
+	ym /= set.len() as f32;
+
+	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
+
+	
+	eprintln!("round {:?}", round_coord);
+	if set.len() < 20
 	{
 	    for p in &set
 	    {
@@ -375,6 +471,14 @@ impl  Predictor  {
 	    }
 	}
 
+	if set.len() < 10 {
+	    eprintln!("inf 10, on est ~sur");
+	    Some(round_coord)
+	}
+	else {
+	    None
+	}
+	   
 
     }
 }
@@ -401,18 +505,13 @@ fn main() {
         io::stdin().read_line(&mut input_line).unwrap();
         let line = input_line.trim_end().to_string();
 	vec.push(line);
-	//println!("{}",line)
+
     }
 
-    //println!("yo {:?}", Action::parse_raw("MOVE TT TORPEDO|SILENCE|TORPEDO 4 4|TRIGGER 5 5"));
 	
-    let mut board = Board::new(&vec);
+    let board = Board::new(&vec);  //ok dont use now board because value are copied on predictor
     let mut predictor = Predictor::new(board);
-    //println!("b {:?}, {}", board, board.grid[3][0]);
-    
-    //println!("{:?} ",board.num_avail_pos(&Coordinate {x:7,y:4}));
-    // Write an action using println!("message...");
-    // To debug: eprintln!("Debug message...");
+ 
 
     let st = board.initial_position();
     println!("{} {}",st.x,st.y);
@@ -440,27 +539,11 @@ fn main() {
         // Write an action using println!("message...");
         // To debug: eprintln!("Debug message...");
 
-   
+	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8);
 	predictor.process_adv_action(Action::parse_raw(&opponent_orders));
 	predictor.get_possible_pos();
-	//eprintln!("pred {:?}",predictor);
-	    
-	let cur_co = Coordinate {x:x as u8, y:y as u8};
-	board.set_visited(&cur_co);
-	let e = board.num_avail_pos(&cur_co);
-	if e[0].0 != 0 {
-            println!("MOVE {:?} TORPEDO",e[0].1);
-	}
-	else {
-	    board.rem_visited();
-	    println!("SURFACE")
-	}
-}
 
+	predictor.get_actions_to_play();
 
-    let c1 = Coordinate {x:2,y:2};
-    let c2 = Coordinate {x:3,y:25};
-
-    println!("{}",c1.dist(&c2));
-    println!("{}",c1.dist(&c2));
+    }
 }
