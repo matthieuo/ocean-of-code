@@ -32,7 +32,7 @@ impl FromStr for Direction {
         }
     }
 }
-#[derive(Debug,Copy, Clone)]
+#[derive(Debug,Copy, Clone,PartialEq, Eq)]
 enum Action_type {
     MOVE, SURFACE, TORPEDO, SONAR, SILENCE, MINE, TRIGGER,
 }
@@ -443,7 +443,7 @@ impl  Predictor  {
 	match self.get_possible_pos() {
 	    None =>  eprintln!("Action: no confidence"),
             Some(coord) => {
-		if coord.dist(&self.cur_co) <=4 {
+		if coord.dist(&self.cur_co) <=4 && self.torpedo == 3 {
 		    
 		    v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 		    self.torpedo = 0;
@@ -482,6 +482,29 @@ impl  Predictor  {
 	self.cur_co = Coordinate {x:x,y:y};
 	self.play_board.set_visited(&self.cur_co);
 	self.my_life = my_life;
+
+	let mut coord_torpedo = Coordinate {x:0,y:0};
+	
+	if self.op_life.len() > 2 && self.actions_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO}) {
+	    eprintln!("Found torpedo previous");
+	    let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
+	    match diff {
+		1 => {
+		    eprintln!("torp touch 1!");
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) <= 5});
+		},
+		2 => {
+		    eprintln!("torp touch 2!");
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) <= 4});
+		},
+		_ => {
+		    eprintln!("torp NO touch");
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) > 5});
+		}
+		    
+	    }
+
+	}
     }
     fn process_adv_action(&mut self, v_act:Vec<Action>) {
 	for a in v_act {
