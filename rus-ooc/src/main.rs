@@ -447,11 +447,17 @@ impl Path {
 	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", self.path_coords.len());
 
+	//try to keep only the maximum confidences
+	let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
+	
 	let mut xm:f32 = -1.0;
 	let mut ym:f32 = -1.0;
 
 	let mut tot:u32 = 0;
 	for (freq, el_v) in &reduced_v {
+	    if freq < max_freq {
+		continue;
+	    }
 	    let el = el_v.last().unwrap();
 	    
 	    if xm < 0.0 {
@@ -521,22 +527,27 @@ impl  Predictor  {
     fn get_actions_to_play(&mut self) -> Vec::<Action> {
 
 	let mut v_act = Vec::<Action>::new();
-	eprintln!("*** MY possible pos");
-	let (my_n_pos, _) = self.my_path.get_possible_pos();
-	eprintln!("mynpos {}", my_n_pos);
-	
-	eprintln!("*** ADV possible pos");
-	let (n_pos, coord) = self.path.get_possible_pos();
-	if n_pos > 10 {
-	    eprintln!("Action: no confidence");
-	}
-	else {
-	    if coord.dist(&self.cur_co) <=4 && coord.dist(&self.cur_co) > 1 && self.torpedo == 3 {
-		v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
-		self.torpedo = 0;
+	let mut my_n_pos = 1000;
+	     
+	if !self.my_path.path_coords.is_empty() && !self.path.path_coords.is_empty() {
+	    eprintln!("*** MY possible pos");
+	    let (my_n_pos_l, _) = self.my_path.get_possible_pos();
+	    my_n_pos = my_n_pos_l;
+	    
+	    eprintln!("mynpos {}", my_n_pos);
+	    
+	    eprintln!("*** ADV possible pos");
+	    let (n_pos, coord) = self.path.get_possible_pos();
+	    if n_pos > 10 {
+		eprintln!("Action: no confidence");
+	    }
+	    else {
+		if coord.dist(&self.cur_co) <=4 && coord.dist(&self.cur_co) > 1 && self.torpedo == 3 {
+		    v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
+		    self.torpedo = 0;
+		}
 	    }
 	}
-	
 	
 	let e = self.play_board.num_avail_pos(&self.cur_co);
 	if e[0].0 != 0 {
@@ -559,6 +570,7 @@ impl  Predictor  {
 	}
 	else {
 	    self.play_board.rem_visited();
+	    eprintln!("SURFACE, sector {}",self.cur_co.to_surface());
 	    v_act.push(Action { ac: Action_type::SURFACE, sector:self.cur_co.to_surface(), ..Default::default() });
 	    //println!("{}SURFACE",add_str)
 	}
