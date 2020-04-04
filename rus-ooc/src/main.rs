@@ -53,6 +53,23 @@ impl Coordinate {
     fn dist(&self, c: &Coordinate) -> u8 {
 	((self.x as i8 -c.x as i8).abs() + (self.y as i8 -c.y as i8).abs()).try_into().unwrap() 
     }
+
+    fn l2_dist(&self, c: &Coordinate) -> u8 {
+	(((self.x as i8 -c.x as i8).pow(2) + (self.y as i8 -c.y as i8).pow(2)) as f64).sqrt().floor() as u8
+    }
+
+    fn to_surface(&self) -> u8 {
+	if self.x < 5 && self.y < 5 {1}
+	else if self.x < 10 && self.y < 5 {2}
+	else if self.x < 15 && self.y < 5 {3}
+	else if self.x < 5 && self.y < 10 {4}
+	else if self.x < 10 && self.y < 10 {5}
+	else if self.x < 15 && self.y < 10 {6}
+	else if self.x < 5 && self.y < 15 {7}
+	else if self.x < 10 && self.y < 15 {8}
+	else if self.x < 15 && self.y < 15 {9}
+	else {panic!("Bad sector")}
+    }
 }
 
 // ----------- Action 
@@ -423,7 +440,7 @@ impl Path {
     }
 
         
-    fn get_possible_pos(&self) ->  Option<Coordinate> {
+    fn get_possible_pos(&self) ->  (usize, Coordinate) {
 		
 	let reduced_v = Path::_reduce_search_space(&self.path_coords);
 	
@@ -465,14 +482,7 @@ impl Path {
 	    }
 	}
 
-	if reduced_v.len() < 10 {
-	    eprintln!("inf 10, on est ~sur");
-	    Some(round_coord)
-	}
-	else {
-	    None
-	}
-	   
+	(reduced_v.len(),round_coord)
     }
 
 }
@@ -511,22 +521,27 @@ impl  Predictor  {
     fn get_actions_to_play(&mut self) -> Vec::<Action> {
 
 	let mut v_act = Vec::<Action>::new();
+	eprintln!("*** MY possible pos");
+	let (my_n_pos, _) = self.my_path.get_possible_pos();
+	eprintln!("mynpos {}", my_n_pos);
 	
-	match self.path.get_possible_pos() {
-	    None =>  eprintln!("Action: no confidence"),
-            Some(coord) => {
-		if coord.dist(&self.cur_co) <=4 && coord.dist(&self.cur_co) > 1 && self.torpedo == 3 {
-		    
-		    v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
-		    self.torpedo = 0;
-		}
-	    },
+	eprintln!("*** ADV possible pos");
+	let (n_pos, coord) = self.path.get_possible_pos();
+	if n_pos > 10 {
+	    eprintln!("Action: no confidence");
 	}
+	else {
+	    if coord.dist(&self.cur_co) <=4 && coord.dist(&self.cur_co) > 1 && self.torpedo == 3 {
+		v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
+		self.torpedo = 0;
+	    }
+	}
+	
 	
 	let e = self.play_board.num_avail_pos(&self.cur_co);
 	if e[0].0 != 0 {
 
-	    if self.silence == 6 {
+	    if self.silence == 6 && my_n_pos < 10 {
 		v_act.push(Action { ac: Action_type::SILENCE, dir:e[0].1, sector:1, ..Default::default() });
 		self.silence = 0;
 	    }
@@ -544,7 +559,7 @@ impl  Predictor  {
 	}
 	else {
 	    self.play_board.rem_visited();
-	    v_act.push(Action { ac: Action_type::SURFACE, ..Default::default() });
+	    v_act.push(Action { ac: Action_type::SURFACE, sector:self.cur_co.to_surface(), ..Default::default() });
 	    //println!("{}SURFACE",add_str)
 	}
 	self.actions_issued = v_act.to_vec(); //copy here
@@ -564,17 +579,17 @@ impl  Predictor  {
 	    match diff {
 		1 => {
 		    eprintln!("torp touch 1! coord {:?}", coord_torpedo);
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 1});
-		    //eprintln!("re {:?}", self.path.path_coords.last().unwrap() );
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) == 1});
+		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path.path_coords) );
 		},
 		2 => {
 		    eprintln!("torp touch 2! coord {:?}", coord_torpedo);
 		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 0});
-		    //eprintln!("re {:?}", self.path.path_coords.last().unwrap() );
+		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path.path_coords) );
 		},
 		_ => {
 		    eprintln!("torp NO touch  coord {:?}", coord_torpedo);
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) > 1});
+		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) > 1});
 		}
 		    
 	    }
@@ -643,9 +658,9 @@ fn main() {
 
 	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8);
 	predictor.path.process_actions(&Action::parse_raw(&opponent_orders));
-	predictor.path.get_possible_pos();
+	//predictor.path.get_possible_pos();
 	let v_acts = predictor.get_actions_to_play();
-	//predictor.my_path.process_actions(&v_acts);
+	predictor.my_path.process_actions(&v_acts);
 	println!("{}",&Action::repr_action_v(&v_acts));
 
     }
