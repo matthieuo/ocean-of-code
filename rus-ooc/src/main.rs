@@ -212,7 +212,52 @@ impl Board {
 	Board {grid:r}
     }
 
-    fn get_diag_coord(&self, c:Coordinate) -> Vec::<Coordinate> {
+
+
+    fn _rec_torpedo_coord_help(&self,c_init:&Coordinate, x:i32,y:i32,hist :&mut HashSet::<(i32,i32)>, ret_list:&mut Vec::<Coordinate>, num_vi:&mut i32){
+
+	*num_vi +=1;
+	    
+	hist.insert((x,y));
+	
+	if x < 0 || x >= MAX_X as i32|| y < 0 || y >= MAX_Y as i32 || self.get_e(&Coordinate {x:(x) as u8, y:(y) as u8}) == 10 {
+	    return
+	}
+
+	if c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) > 4
+	{
+	    eprintln!("sup {:?} {:?} dist {}",c_init, Coordinate {x:(x) as u8, y:(y) as u8},c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) );
+	    return
+	}
+	
+	ret_list.push(Coordinate {x:(x) as u8, y:(y) as u8});
+
+
+	for x_a in -1..2 {
+	    for y_a in -1..2  {
+		if !hist.contains(&(x + x_a, y + y_a)) {
+		    if !(x+ x_a < 0
+			 || x + x_a>= MAX_X as i32
+			 || y+ y_a < 0
+			 || y+ y_a >= MAX_Y as i32
+			 || self.get_e(&Coordinate {x:(x+ x_a) as u8, y:(y+ y_a) as u8}) == 10
+			 || c_init.dist(&Coordinate {x:(x+ x_a) as u8, y:(y+ y_a) as u8}) > 4) {
+			self._rec_torpedo_coord_help(c_init, x + x_a, y + y_a, hist, ret_list, num_vi);
+		    }
+		}
+	    }
+	}
+    }
+    
+    fn get_torpedo_pos_from_coord(&self, c:&Coordinate) -> Vec::<Coordinate> {
+	let mut ret = Vec::<Coordinate>::new();
+	let mut num_vi = 0;
+	self._rec_torpedo_coord_help(&c, c.x as i32, c.y as i32,  &mut HashSet::<(i32,i32)>::new(), &mut ret, &mut num_vi);
+	//eprintln!("Num vi {}", num_vi);
+	ret
+    }
+    
+    fn get_diag_coord(&self, c:&Coordinate) -> Vec::<Coordinate> {
 	let mut ret_v = Vec::<Coordinate>::new();
 	let x = c.x as i8;
 	let y = c.y as i8;
@@ -553,10 +598,6 @@ struct Simulator {
     play_lost: u8,
 }
 
-/*	    None
-	}
-	else {
-	    Some(Coordinate {x:xl as u8, y:yl as u8})*/
 impl Simulator {
     fn new(l_board:Board,
 	   play_c:Coordinate,
@@ -592,16 +633,22 @@ impl Simulator {
 	    
 		Action_type::SURFACE => return None,
 		Action_type::TORPEDO => {
-		    if sim_sim.play_c.dist(&a.coord) > 4 {
-			eprintln!("to long {:?}", a.coord);
+
+		    //eprintln!("Torp val co {:?}, vec {:?}", a.coord, sim_sim.board.get_torpedo_pos_from_coord(&a.coord));
+		    
+		    let list_torps = sim_sim.board.get_torpedo_pos_from_coord(&sim_sim.play_c);
+		    //eprintln!("Size list {:?} {}", sim_sim.play_c, list_torps.len());
+		    //if sim_sim.play_c.dist(&a.coord) > 4 {
+		    if !list_torps.contains(&a.coord) {
+			//eprintln!("to long {:?}", a.coord);
 			return None;
 		    }
 
 		    if sim_sim.torpedo_v < 3 {
-			eprintln!("no torpedo {}", sim_sim.torpedo_v);
+			//eprintln!("no torpedo {}", sim_sim.torpedo_v);
 			return None;
 		    }
-		    eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
+		    //eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
 		    sim_sim.torpedo_v = 0;
 		    if a.coord.dist(&sim_sim.adv_c) == 0 {
 			sim_sim.adv_lost = 2;
@@ -648,7 +695,7 @@ impl Simulator {
 		Action_type::TRIGGER => return None,	
 	    }	    
 	}
-	eprintln!("ret val {}",sim_sim.adv_lost);
+	//eprintln!("ret val {}",sim_sim.adv_lost);
 	Some(sim_sim)
     }
 
@@ -670,7 +717,7 @@ impl Simulator {
 	    }
 	}
 
-	for a in &self.board.get_diag_coord(self.adv_c) {
+	for a in &self.board.get_diag_coord(&self.adv_c) {
 	    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
 	}
 
@@ -683,14 +730,54 @@ impl Simulator {
 	    match self.play_ac_l(v_try)
 	    {
 		Some(sim) => {
-		    if sim.adv_lost > max_op {
-			max_op = sim.adv_lost;
+		    if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
+			max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
 			ret_val = Some((v_try.to_vec(), sim));
 		    }
 		}
 		None => continue,
 	    }
 	}
+
+
+	//move then torpedo
+	
+	for a_move in &v_move {
+	    for a in &v_torp {
+		let v_try = &vec![*a_move, *a];
+		match self.play_ac_l(v_try)
+		{
+		    Some(sim) => {
+			if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
+			    max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
+			    ret_val = Some((v_try.to_vec(), sim));
+			}
+		    }
+		    None => continue,
+		}
+	    }
+	}
+
+	//silence then torpedo
+	/*for a_sil in &v_sil {
+	    for a in &v_torp {
+		let v_try = &vec![*a_sil, *a];
+		match self.play_ac_l(v_try)
+		{
+		    Some(sim) => {
+			if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
+			    max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
+			    ret_val = Some((v_try.to_vec(), sim));
+			}
+		    }
+		    None => continue,
+		}
+	    }
+	}*/
+	
+
+	
+	
 	ret_val
     }
   
@@ -761,18 +848,24 @@ impl  Predictor  {
 		}
 		else {
 
-		    let simul = Simulator::new(self.path.board,
+		    let simul = Simulator::new(self.play_board,
 					       self.cur_co,
 					       coord,
 					       self.torpedo,
 					       self.silence);
 
 		    match simul.compute_best_sequence() {
-			Some((v,sim)) => eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost),
+			Some((v,sim)) => {
+			    eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
+			    v_act = v;
+			    self.torpedo = sim.torpedo_v;
+			    self.silence = sim.silence_v;
+			    combo = true;
+			},
 			None => eprintln!("FFFFFF NOT"),
 		    }
 		    
-		    if coord.dist(&self.cur_co) <=4 && coord.l2_dist(&self.cur_co) > 1 && self.torpedo == 3 {
+		    /*if coord.dist(&self.cur_co) <=4 && coord.l2_dist(&self.cur_co) > 1 && self.torpedo == 3 {
 			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 			self.torpedo = 0;
 		    }
@@ -781,17 +874,12 @@ impl  Predictor  {
 			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 			self.torpedo = 0;
 			combo = true;
-		    }
-		    /*else if n_pos == 1 {
-			match simul.compute_best_sequence() {
-			    Some((v,sim)) => eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost),
-			    None => eprintln!("FFFFFF NOT"),
-			}
 		    }*/
+
 		}
 	    }
 	    
-	    if self.silence == 6 && my_n_pos < 10 {
+	    if !combo && self.silence == 6 && my_n_pos < 10 {
 		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
 		self.silence = 0;
 	    }
