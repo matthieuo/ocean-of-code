@@ -2,6 +2,7 @@ use std::io;
 use std::convert::TryInto;
 use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::LinkedList;
 use std::cmp::Reverse;
 use std::cmp;
 use std::str::FromStr;
@@ -55,7 +56,7 @@ impl Coordinate {
     }
 
     fn l2_dist(&self, c: &Coordinate) -> u8 {
-	(((self.x as i8 -c.x as i8).pow(2) + (self.y as i8 -c.y as i8).pow(2)) as f64).sqrt().floor() as u8
+	(((self.x as i32 -c.x as i32).pow(2) + (self.y as i32 -c.y as i32).pow(2)) as f64).sqrt().floor() as u8
     }
 
     fn to_surface(&self) -> u8 {
@@ -211,6 +212,21 @@ impl Board {
 	Board {grid:r}
     }
 
+    fn get_diag_coord(&self, c:Coordinate) -> Vec::<Coordinate> {
+	let mut ret_v = Vec::<Coordinate>::new();
+	let x = c.x as i8;
+	let y = c.y as i8;
+
+	for x_a in -1..2 {
+	    for y_a in -1..2 {
+		if !(x+x_a < 0 || x+x_a >= MAX_X as i8|| y+y_a < 0 || y+y_a >= MAX_Y as i8 || self.get_e(&Coordinate {x:(x +x_a) as u8, y:(y + y_a) as u8}) == 10) {
+		    ret_v.push(Coordinate {x:(x +x_a) as u8, y:(y + y_a) as u8});
+		}
+	    }
+	}
+	ret_v
+	
+    }
     //return the coord following the direction if correct
     fn check_dir(&self, c: &Coordinate, dir: &Direction) -> Option<Coordinate>  {
 	let mut xl = c.x as i8;
@@ -233,6 +249,35 @@ impl Board {
 	
     }
 
+    fn _rec_best_path(&self, cur_pos :&Coordinate, hist :&mut HashSet::<Coordinate>) -> (u8, LinkedList::<Direction>) {
+	hist.insert(*cur_pos);
+	let mut sum_a = 1;
+
+	let mut dir_max = LinkedList::<Direction>::new();
+	let mut max_val = 0;
+	    
+	for d in &[Direction::N, Direction::S, Direction::W, Direction::E]{
+	    match self.check_dir(cur_pos, d) {
+		Some(c_valid) => {
+		    if !hist.contains(&c_valid) {
+			let (val, r_l) = self._rec_best_path(&c_valid, hist);
+			sum_a += val;
+
+			if val > max_val {
+			    max_val = val;
+			    dir_max = r_l.iter().copied().collect();
+			    dir_max.push_front(*d);
+			}
+		    }
+		}
+		None    => continue,
+	    }
+	  
+	}
+	(sum_a,dir_max)
+    }
+    
+    
     fn _rec_num_pos(&self, cur_pos :&Coordinate, hist :&mut HashSet::<Coordinate>) -> u8 {
 	hist.insert(*cur_pos);
 	let mut sum_a = 1;
@@ -266,7 +311,7 @@ impl Board {
 
     fn initial_position(&self) -> Coordinate {
 	loop {
-	    let numx = rand::thread_rng().gen_range(0, 15);
+	    let numx = 0; //rand::thread_rng().gen_range(0, 15);
 	    let numy = rand::thread_rng().gen_range(0, 15);
 	    
 	    if self.get_e(&Coordinate {x:numx as u8, y:numy as u8}) == 0 {
@@ -276,6 +321,9 @@ impl Board {
 
 	}
     }
+
+
+
 }
 
 
@@ -492,6 +540,163 @@ impl Path {
     }
 
 }
+
+// ------------ SIMULATOR
+#[derive( Copy, Clone,Debug)]
+struct Simulator {
+    board: Board,
+    play_c: Coordinate,
+    adv_c: Coordinate,
+    torpedo_v: u8,
+    silence_v: u8,
+    adv_lost: u8,
+    play_lost: u8,
+}
+
+/*	    None
+	}
+	else {
+	    Some(Coordinate {x:xl as u8, y:yl as u8})*/
+impl Simulator {
+    fn new(l_board:Board,
+	   play_c:Coordinate,
+	   adv_c:Coordinate,
+	   torpedo_v:u8,
+	   silence_v:u8) -> Simulator { Simulator {board:l_board,
+						       play_c:play_c,
+						       adv_c:adv_c,
+						       silence_v:silence_v,
+						       torpedo_v:torpedo_v,
+						       adv_lost:0,
+						       play_lost:0}}
+
+    fn play_ac_l(&self, va:&Vec::<Action>) -> Option<Simulator> {
+	let mut sim_sim = *self;
+	for a in va {
+	    match a.ac {
+		Action_type::MOVE => {
+		    match sim_sim.board.check_dir(&sim_sim.play_c, &a.dir) {
+			Some(c_valid) => {
+			    sim_sim.play_c = c_valid;
+			    sim_sim.board.set_visited(&c_valid);
+			    if a.ac_load == Action_type::TORPEDO {
+				sim_sim.torpedo_v = cmp::min(sim_sim.torpedo_v+1, 3);
+			    }
+			    else {
+				sim_sim.silence_v = cmp::min(sim_sim.silence_v+1, 6);
+			    }		    
+			},
+			None    => return None,
+		    }
+		},
+	    
+		Action_type::SURFACE => return None,
+		Action_type::TORPEDO => {
+		    if sim_sim.play_c.dist(&a.coord) > 4 {
+			eprintln!("to long {:?}", a.coord);
+			return None;
+		    }
+
+		    if sim_sim.torpedo_v < 3 {
+			eprintln!("no torpedo {}", sim_sim.torpedo_v);
+			return None;
+		    }
+		    eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
+		    sim_sim.torpedo_v = 0;
+		    if a.coord.dist(&sim_sim.adv_c) == 0 {
+			sim_sim.adv_lost = 2;
+		    }
+		    else if a.coord.l2_dist(&sim_sim.adv_c) == 1 {
+			sim_sim.adv_lost = 1;
+		    }
+
+		    if a.coord.dist(&sim_sim.play_c) == 0 {
+			sim_sim.play_lost = 2;
+		    }
+		    else if a.coord.l2_dist(&sim_sim.play_c) == 1 {
+			sim_sim.play_lost = 1;
+		    }
+		    
+		}
+		Action_type::SONAR => return None,
+		Action_type::SILENCE => {
+		    if sim_sim.silence_v < 6 {
+			return None
+		    }
+
+		    let mut loc_pc = self.play_c;
+		    for _ in 0..a.sector {	    
+			match sim_sim.board.check_dir(&loc_pc, &a.dir) {
+			    Some(c_valid) => loc_pc = c_valid,
+			    None    => return None,
+			}
+		    }
+		    
+		    //ok here we tested all coords and it's OK, now write on the board
+		    for _ in 0..a.sector {	    
+			match sim_sim.board.check_dir(&sim_sim.play_c, &a.dir) {
+			    Some(c_valid) => {
+				sim_sim.board.set_visited(&c_valid);
+				sim_sim.play_c = c_valid
+			    }
+			    None    => panic!("Can't happen !!"),
+			}
+		    }
+		    sim_sim.silence_v = 0;
+		}
+		Action_type::MINE => return None,
+		Action_type::TRIGGER => return None,	
+	    }	    
+	}
+	eprintln!("ret val {}",sim_sim.adv_lost);
+	Some(sim_sim)
+    }
+
+    fn compute_best_sequence(&self) -> Option<(Vec::<Action>, Simulator)> {
+	
+	//let mut v_ret =  Vec::<Action>::new();
+	
+	let mut v_move = Vec::<Action>::new();
+	let mut v_sil =  Vec::<Action>::new();
+	let mut v_torp =  Vec::<Action>::new();
+
+	
+	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
+	    
+	    for i in 1..5 {
+		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
+	    }
+	}
+
+	for a in &self.board.get_diag_coord(self.adv_c) {
+	    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
+	}
+
+
+	let mut max_op = 0;
+	let mut ret_val:Option::<(Vec::<Action>, Simulator)> = None;
+	
+	for a in &v_torp {
+	    let v_try = &vec![*a];
+	    match self.play_ac_l(v_try)
+	    {
+		Some(sim) => {
+		    if sim.adv_lost > max_op {
+			max_op = sim.adv_lost;
+			ret_val = Some((v_try.to_vec(), sim));
+		    }
+		}
+		None => continue,
+	    }
+	}
+	ret_val
+    }
+  
+}
+
+//------------ PREDICTOR
 #[derive(Debug)]
 struct Predictor {
     path: Path,
@@ -525,47 +730,87 @@ impl  Predictor  {
 
     //to do dont print!
     fn get_actions_to_play(&mut self) -> Vec::<Action> {
-
+	eprintln!("Torpedo val {}",self.torpedo);
 	let mut v_act = Vec::<Action>::new();
-	let mut my_n_pos = 1000;
-	     
-	if !self.my_path.path_coords.is_empty() && !self.path.path_coords.is_empty() {
-	    eprintln!("*** MY possible pos");
-	    let (my_n_pos_l, _) = self.my_path.get_possible_pos();
-	    my_n_pos = my_n_pos_l;
+	//let e = self.play_board.num_avail_pos(&self.cur_co);
+	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut HashSet::<Coordinate>::new());
+	
+	//let e = (dir.len(), dir.front());
+
+	let possible_move = dir.len();
+
+	if possible_move != 0 {
+	    let next_dir = *dir.front().unwrap();
+	    let mut my_n_pos = 1000;
+
+	    let mut combo = false;
 	    
-	    eprintln!("mynpos {}", my_n_pos);
-	    
-	    eprintln!("*** ADV possible pos");
-	    let (n_pos, coord) = self.path.get_possible_pos();
-	    if n_pos > 10 {
-		eprintln!("Action: no confidence");
-	    }
-	    else {
-		if coord.dist(&self.cur_co) <=4 && coord.dist(&self.cur_co) > 1 && self.torpedo == 3 {
-		    v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
-		    self.torpedo = 0;
+	    if !self.my_path.path_coords.is_empty() && !self.path.path_coords.is_empty() {
+
+
+		eprintln!("*** MY possible pos");
+		let (my_n_pos_l, _) = self.my_path.get_possible_pos();
+		my_n_pos = my_n_pos_l;
+		
+		eprintln!("mynpos {}", my_n_pos);
+		
+		eprintln!("*** ADV possible pos");
+		let (n_pos, coord) = self.path.get_possible_pos();
+		if n_pos > 20 {
+		    eprintln!("Action: no confidence");
+		}
+		else {
+
+		    let simul = Simulator::new(self.path.board,
+					       self.cur_co,
+					       coord,
+					       self.torpedo,
+					       self.silence);
+
+		    match simul.compute_best_sequence() {
+			Some((v,sim)) => eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost),
+			None => eprintln!("FFFFFF NOT"),
+		    }
+		    
+		    if coord.dist(&self.cur_co) <=4 && coord.l2_dist(&self.cur_co) > 1 && self.torpedo == 3 {
+			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
+			self.torpedo = 0;
+		    }
+		    else if coord.dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) <=4 && coord.l2_dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) > 1 && self.torpedo >= 2 {
+			v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
+			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
+			self.torpedo = 0;
+			combo = true;
+		    }
+		    /*else if n_pos == 1 {
+			match simul.compute_best_sequence() {
+			    Some((v,sim)) => eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost),
+			    None => eprintln!("FFFFFF NOT"),
+			}
+		    }*/
 		}
 	    }
-	}
-	
-	let e = self.play_board.num_avail_pos(&self.cur_co);
-	if e[0].0 != 0 {
-
+	    
 	    if self.silence == 6 && my_n_pos < 10 {
-		v_act.push(Action { ac: Action_type::SILENCE, dir:e[0].1, sector:1, ..Default::default() });
+		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
 		self.silence = 0;
 	    }
 	    
 	    else if self.torpedo < 3 {
-		v_act.push(Action { ac: Action_type::MOVE, dir:e[0].1, ac_load:Action_type::TORPEDO, ..Default::default() });
-		self.torpedo += 1;
-		self.torpedo = cmp::min(self.torpedo,3);
+		if !combo {
+		    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
+		
+		    self.torpedo += 1;
+		    self.torpedo = cmp::min(self.torpedo,3);
+		}
 	    }
 	    else {
-		v_act.push(Action { ac: Action_type::MOVE, dir:e[0].1, ac_load:Action_type::SILENCE, ..Default::default() });
-		self.silence += 1;
-		self.silence = cmp::min(self.silence,6);
+		if !combo{
+		    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::SILENCE, ..Default::default() });
+		
+		    self.silence += 1;
+		    self.silence = cmp::min(self.silence,6);
+		}
 	    }
 	}
 	else {
@@ -640,10 +885,12 @@ fn main() {
 	
     let board = Board::new(&vec);  //ok dont use now board because value are copied on predictor
     let mut predictor = Predictor::new(board);
- 
+
+
 
     let st = board.initial_position();
     println!("{} {}",st.x,st.y);
+
     
     // game loop
     loop {
