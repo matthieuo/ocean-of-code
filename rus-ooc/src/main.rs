@@ -226,28 +226,29 @@ impl Board {
 
 	if c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) > 4
 	{
-	    eprintln!("sup {:?} {:?} dist {}",c_init, Coordinate {x:(x) as u8, y:(y) as u8},c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) );
+	    //eprintln!("sup {:?} {:?} dist {}",c_init, Coordinate {x:(x) as u8, y:(y) as u8},c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) );
 	    return
 	}
 	
 	ret_list.push(Coordinate {x:(x) as u8, y:(y) as u8});
+	
+	if c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) == 4
+	{
+	    //eprintln!("sup {:?} {:?} dist {}",c_init, Coordinate {x:(x) as u8, y:(y) as u8},c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) );
+	    return
+	}
 
-
-	for x_a in -1..2 {
-	    for y_a in -1..2  {
-		if !hist.contains(&(x + x_a, y + y_a)) {
-		    if !(x+ x_a < 0
-			 || x + x_a>= MAX_X as i32
-			 || y+ y_a < 0
-			 || y+ y_a >= MAX_Y as i32
-			 || self.get_e(&Coordinate {x:(x+ x_a) as u8, y:(y+ y_a) as u8}) == 10
-			 || c_init.dist(&Coordinate {x:(x+ x_a) as u8, y:(y+ y_a) as u8}) > 4) {
-			self._rec_torpedo_coord_help(c_init, x + x_a, y + y_a, hist, ret_list, num_vi);
-		    }
-		}
+	for modif in -1..2 {
+	    if !hist.contains(&(x + modif, y)) {
+		self._rec_torpedo_coord_help(c_init, x + modif, y, hist, ret_list, num_vi);
 	    }
+	    if !hist.contains(&(x, y + modif)) {
+		self._rec_torpedo_coord_help(c_init, x, y + modif, hist, ret_list, num_vi);
+	    }
+		
 	}
     }
+
     
     fn get_torpedo_pos_from_coord(&self, c:&Coordinate) -> Vec::<Coordinate> {
 	let mut ret = Vec::<Coordinate>::new();
@@ -648,7 +649,7 @@ impl Simulator {
 			//eprintln!("no torpedo {}", sim_sim.torpedo_v);
 			return None;
 		    }
-		    //eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
+		    eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
 		    sim_sim.torpedo_v = 0;
 		    if a.coord.dist(&sim_sim.adv_c) == 0 {
 			sim_sim.adv_lost = 2;
@@ -730,8 +731,8 @@ impl Simulator {
 	    match self.play_ac_l(v_try)
 	    {
 		Some(sim) => {
-		    if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
-			max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
+		    if (sim.adv_lost as i32 - sim.play_lost as i32)  > max_op {
+			max_op = (sim.adv_lost as i32 - sim.play_lost as i32);
 			ret_val = Some((v_try.to_vec(), sim));
 		    }
 		}
@@ -748,8 +749,8 @@ impl Simulator {
 		match self.play_ac_l(v_try)
 		{
 		    Some(sim) => {
-			if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
-			    max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
+			if sim.adv_lost as i32 - sim.play_lost as i32  > max_op {
+			    max_op = sim.adv_lost as i32 - sim.play_lost as i32;
 			    ret_val = Some((v_try.to_vec(), sim));
 			}
 		    }
@@ -792,7 +793,7 @@ struct Predictor {
     op_life: Vec::<u8>,
     cur_co: Coordinate,
     play_board: Board,
-    my_life: u8,
+    my_life: Vec::<u8>,
     torpedo :u8,
     silence :u8,
     sonar :u8,
@@ -807,7 +808,7 @@ impl  Predictor  {
 			  op_life:Vec::<u8>::new(),
 			  cur_co: Coordinate {x:0,y:0},
 			  actions_issued:Vec::<Action>::new(),
-			  my_life:0,
+			  my_life:Vec::<u8>::new(),
 			  play_board:board,
 			  torpedo:0,
 			  silence:0,
@@ -838,38 +839,44 @@ impl  Predictor  {
 		eprintln!("*** MY possible pos");
 		let (my_n_pos_l, _) = self.my_path.get_possible_pos();
 		my_n_pos = my_n_pos_l;
-		
+
+		let diff_life = self.my_life[self.my_life.len() - 2] - *self.my_life.last().unwrap();
+		if diff_life > 0 {
+		    my_n_pos = 0; //critique, touché
+		}
 		eprintln!("mynpos {}", my_n_pos);
 		
 		eprintln!("*** ADV possible pos");
 		let (n_pos, coord) = self.path.get_possible_pos();
-		if n_pos > 20 {
-		    eprintln!("Action: no confidence");
+		if n_pos > 20 /*|| diff_life !=0*/ {
+		    eprintln!("Action: no confidence (diff life ) {}", diff_life);
 		}
 		else {
 
-		    let simul = Simulator::new(self.play_board,
-					       self.cur_co,
-					       coord,
-					       self.torpedo,
-					       self.silence);
-
-		    match simul.compute_best_sequence() {
-			Some((v,sim)) => {
-			    eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
-			    v_act = v;
-			    self.torpedo = sim.torpedo_v;
-			    self.silence = sim.silence_v;
-			    combo = true;
-			},
-			None => eprintln!("FFFFFF NOT"),
+		    if n_pos < 200 { //on est tres sur
+			let simul = Simulator::new(self.play_board,
+						   self.cur_co,
+						   coord,
+						   self.torpedo,
+						   self.silence);
+			
+			match simul.compute_best_sequence() {
+			    Some((v,sim)) => {
+				eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
+				v_act = v;
+				self.torpedo = sim.torpedo_v;
+				self.silence = sim.silence_v;
+				combo = true;
+			    },
+			    None => eprintln!("FFFFFF NOT"),
+			}
 		    }
 		    
-		    /*if coord.dist(&self.cur_co) <=4 && coord.l2_dist(&self.cur_co) > 1 && self.torpedo == 3 {
+		    else if coord.dist(&self.cur_co) <=4 && coord.l2_dist(&self.cur_co) > 1 && self.torpedo == 3 {
 			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 			self.torpedo = 0;
 		    }
-		    else if coord.dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) <=4 && coord.l2_dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) > 1 && self.torpedo >= 2 {
+		    /*else if coord.dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) <=4 && coord.l2_dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) > 1 && self.torpedo >= 2 {
 			v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
 			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
 			self.torpedo = 0;
@@ -914,7 +921,7 @@ impl  Predictor  {
 	self.op_life.push(opp_life);
 	self.cur_co = Coordinate {x:x,y:y};
 	self.play_board.set_visited(&self.cur_co);
-	self.my_life = my_life;
+	self.my_life.push(my_life);
 
 	let mut coord_torpedo = Coordinate {x:0,y:0};
 	
