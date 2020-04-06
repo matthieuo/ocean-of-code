@@ -6,6 +6,8 @@ use std::collections::LinkedList;
 use std::cmp::Reverse;
 use std::cmp;
 use std::str::FromStr;
+use std::collections::VecDeque;
+
 extern crate rand;
 use rand::Rng;
 use std::fmt;
@@ -294,7 +296,25 @@ impl Board {
 	}
 	
     }
+    
+    /*fn _bfs_best_path(&self, cur_pos :&Coordinate) { //-> (u8, LinkedList::<Direction>) {
+	let mut visited = [[false;MAX_X as usize];MAX_Y as usize];
 
+	let mut queue = VecDeque::<Coordinate>::new();
+	queue.push_back(*cur_pos) ;
+        visited[cur_pos.x as usize][cur_pos.y as usize] = true;
+	
+	while !queue.is_empty() {
+	    let c = queue.pop_back().unwrap();
+
+	    
+	    
+	}
+	
+    }*/
+
+
+    
     fn _rec_best_path(&self, cur_pos :&Coordinate, hist :&mut HashSet::<Coordinate>) -> (u8, LinkedList::<Direction>) {
 	hist.insert(*cur_pos);
 	let mut sum_a = 1;
@@ -583,6 +603,31 @@ impl Path {
 	}
 
 	(reduced_v.len(),round_coord)
+    }
+    fn process_previous_actions(&mut self, va_issued:&Vec<Action>, diff_life:u8) {
+	let mut coord_torpedo = Coordinate {x:0,y:0};
+	if  va_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO}) {
+	    eprintln!("Found torpedo previous");
+	    //let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
+	    match  diff_life {
+		1 => {
+		    eprintln!("torp touch 1! coord {:?}", coord_torpedo);
+		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) == 1});
+		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path_coords) );
+		},
+		2 => {
+		    eprintln!("torp touch 2! coord {:?}", coord_torpedo);
+		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 0});
+		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path_coords) );
+		},
+		_ => {
+		    eprintln!("torp NO touch  coord {:?}", coord_torpedo);
+		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) > 1});
+		}
+		    
+	    }
+
+	}	
     }
 
 }
@@ -917,36 +962,24 @@ impl  Predictor  {
 	self.actions_issued = v_act.to_vec(); //copy here
 	v_act
     }
-    fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8) {
+    fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8, oponent_orders:&Vec::<Action>) {
 	self.op_life.push(opp_life);
 	self.cur_co = Coordinate {x:x,y:y};
 	self.play_board.set_visited(&self.cur_co);
 	self.my_life.push(my_life);
 
-	let mut coord_torpedo = Coordinate {x:0,y:0};
-	
-	if self.op_life.len() > 2 && self.actions_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO}) {
-	    eprintln!("Found torpedo previous");
+	if self.op_life.len() > 2 {
+	    eprintln!("Update ADV coordinate");
 	    let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
-	    match diff {
-		1 => {
-		    eprintln!("torp touch 1! coord {:?}", coord_torpedo);
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) == 1});
-		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path.path_coords) );
-		},
-		2 => {
-		    eprintln!("torp touch 2! coord {:?}", coord_torpedo);
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 0});
-		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path.path_coords) );
-		},
-		_ => {
-		    eprintln!("torp NO touch  coord {:?}", coord_torpedo);
-		    self.path.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) > 1});
-		}
-		    
-	    }
-
+	    self.path.process_previous_actions(&self.actions_issued, diff);
 	}
+
+	if self.my_life.len() > 2 {
+	    eprintln!("Update MY coordinate");
+	    let diff = self.my_life[self.my_life.len() - 2] - *self.my_life.last().unwrap();
+	    self.my_path.process_previous_actions(oponent_orders, diff);
+	}
+
     }
 
 
@@ -1010,7 +1043,7 @@ fn main() {
         // Write an action using println!("message...");
         // To debug: eprintln!("Debug message...");
 
-	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8);
+	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8, &Action::parse_raw(&opponent_orders));
 	predictor.path.process_actions(&Action::parse_raw(&opponent_orders));
 	//predictor.path.get_possible_pos();
 	let v_acts = predictor.get_actions_to_play();
