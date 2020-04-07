@@ -725,6 +725,7 @@ struct Simulator {
     silence_v: u8,
     adv_lost: u8,
     play_lost: u8,
+    proba_coord: f64,
 }
 
 impl Simulator {
@@ -732,13 +733,15 @@ impl Simulator {
 	   play_c:Coordinate,
 	   adv_c:Coordinate,
 	   torpedo_v:u8,
-	   silence_v:u8) -> Simulator { Simulator {board:l_board,
-						       play_c:play_c,
-						       adv_c:adv_c,
-						       silence_v:silence_v,
-						       torpedo_v:torpedo_v,
-						       adv_lost:0,
-						       play_lost:0}}
+	   silence_v:u8,
+	   proba_coord:f64) -> Simulator { Simulator {board:l_board,
+						      play_c:play_c,
+						      adv_c:adv_c,
+						      silence_v:silence_v,
+						      torpedo_v:torpedo_v,
+						      adv_lost:0,
+						      proba_coord:proba_coord,
+						      play_lost:0}}
 
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<Simulator> {
 	let mut sim_sim = *self;
@@ -800,26 +803,30 @@ impl Simulator {
 			return None
 		    }
 
-		    let mut loc_pc = self.play_c;
-		    for _ in 0..a.sector {	    
+		    let mut loc_pc:Coordinate = sim_sim.play_c;
+		    for i in 0..a.sector {
+			//eprintln!("beg Action pass {}",i);
 			match sim_sim.board.check_dir(&loc_pc, &a.dir) {
-			    Some(c_valid) => loc_pc = c_valid,
+			    Some(c_valid) => {loc_pc = c_valid; eprintln!("Action {} pass",i);},
 			    None    => return None,
 			}
 		    }
 		    
 		    //ok here we tested all coords and it's OK, now write on the board
-		    for _ in 0..a.sector {	    
+		    for i in 0..a.sector {
+			//eprintln!("beg Action OK {}",i);
 			match sim_sim.board.check_dir(&sim_sim.play_c, &a.dir) {
+			    
 			    Some(c_valid) => {
 				sim_sim.board.set_visited(&c_valid);
-				sim_sim.play_c = c_valid
-			    }
+				sim_sim.play_c = c_valid;
+				//eprintln!("Action OK {}",i);
+			    },
 			    None    => panic!("Can't happen !!"),
 			}
 		    }
 		    sim_sim.silence_v = 0;
-		}
+		},
 		Action_type::MINE => return None,
 		Action_type::TRIGGER => return None,	
 	    }	    
@@ -853,31 +860,18 @@ impl Simulator {
 
 	let mut max_op = 0;
 	let mut ret_val:Option::<(Vec::<Action>, Simulator)> = None;
-	
-	for a in &v_torp {
-	    let v_try = &vec![*a];
-	    match self.play_ac_l(v_try)
-	    {
-		Some(sim) => {
-		    if (sim.adv_lost as i32 - sim.play_lost as i32)  > max_op {
-			max_op = (sim.adv_lost as i32 - sim.play_lost as i32);
-			ret_val = Some((v_try.to_vec(), sim));
-		    }
-		}
-		None => continue,
-	    }
-	}
 
 
-	//move then torpedo
-	
-	for a_move in &v_move {
+
+
+	if self.proba_coord >= 0.2 && self.proba_coord <= 0.3 {
+	    eprintln!("Proba inf >= 0.2 <=0.3, only torpedo");
 	    for a in &v_torp {
-		let v_try = &vec![*a_move, *a];
+		let v_try = &vec![*a];
 		match self.play_ac_l(v_try)
 		{
 		    Some(sim) => {
-			if sim.adv_lost as i32 - sim.play_lost as i32  > max_op {
+			if (sim.adv_lost as i32 - sim.play_lost as i32)  > max_op {
 			    max_op = sim.adv_lost as i32 - sim.play_lost as i32;
 			    ret_val = Some((v_try.to_vec(), sim));
 			}
@@ -886,29 +880,46 @@ impl Simulator {
 		}
 	    }
 	}
-
-	//move silence then torpedo
-	for a_move in &v_move {
-	for a_sil in &v_sil {
-	    for a in &v_torp {
-		let v_try = &vec![*a_move,*a_sil, *a];
-		match self.play_ac_l(v_try)
-		{
-		    Some(sim) => {
-			if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
-			    max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
-			    ret_val = Some((v_try.to_vec(), sim));
+	else if self.proba_coord <= 0.8 {
+	    //move then torpedo
+	    eprintln!("Proba inf < 0.8, move +  torpedo");
+	    for a_move in &v_move {
+		for a in &v_torp {
+		    let v_try = &vec![*a_move, *a];
+		    match self.play_ac_l(v_try)
+		    {
+			Some(sim) => {
+			    if sim.adv_lost as i32 - sim.play_lost as i32  > max_op {
+				max_op = sim.adv_lost as i32 - sim.play_lost as i32;
+				ret_val = Some((v_try.to_vec(), sim));
+			    }
 			}
+			None => continue,
 		    }
-		    None => continue,
 		}
 	    }
 	}
+	else {
+	    //move silence then torpedo
+	    eprintln!("Proba inf > 0.9, move + silence torpedo");
+	    for a_move in &v_move {
+		for a_sil in &v_sil {
+		    for a in &v_torp {
+			let v_try = &vec![*a_move,*a_sil, *a];
+			match self.play_ac_l(v_try)
+			{
+			    Some(sim) => {
+				if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
+				    max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
+				    ret_val = Some((v_try.to_vec(), sim));
+				}
+			    }
+			    None => continue,
+			}
+		    }
+		}
+	    }
 	}
-	
-
-	
-	
 	ret_val
     }
   
@@ -960,8 +971,6 @@ impl  Predictor  {
 	if possible_move != 0 {
 	    let next_dir = *dir.front().unwrap();
 	    let mut proba_my = 0.0;
-
-	    let mut combo = false;
 	    
 	    if !self.my_path.path_coords.is_empty() && !self.path.path_coords.is_empty() {
 
@@ -976,65 +985,49 @@ impl  Predictor  {
 		let (n_pos, coord_mean, variance, prob, max_prob_coord) = self.path.get_possible_pos();
 		let coord = max_prob_coord;
 		eprintln!("*** ADV possible pos np: {}, var: {:?}, prob : {}", n_pos, variance, prob);
-		if prob < 0.2 /*|| diff_life !=0*/ {
-		    eprintln!("Action: no confidence");
-		}
-		else {
 
-		    if n_pos < 200 { //on est tres sur
-			let simul = Simulator::new(self.play_board,
-						   self.cur_co,
-						   coord,
-						   self.torpedo,
-						   self.silence);
+
+	
+		let simul = Simulator::new(self.play_board,
+					   self.cur_co,
+					   coord,
+					   self.torpedo,
+					   self.silence,
+					   prob);
 			
-			match simul.compute_best_sequence() {
-			    Some((v,sim)) => {
-				eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
-				v_act = v;
-				self.torpedo = sim.torpedo_v;
-				self.silence = sim.silence_v;
-				combo = true;
-			    },
-			    None => eprintln!("FFFFFF NOT"),
-			}
-		    }
-		    
-		    else if coord.dist(&self.cur_co) <=4 && coord.l2_dist(&self.cur_co) > 1 && self.torpedo == 3 {
-			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
-			self.torpedo = 0;
-		    }
-		    /*else if coord.dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) <=4 && coord.l2_dist(&self.my_path.board.check_dir(&self.cur_co,&next_dir).unwrap()) > 1 && self.torpedo >= 2 {
-			v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
-			v_act.push(Action { ac: Action_type::TORPEDO, coord:coord, ..Default::default() });
-			self.torpedo = 0;
-			combo = true;
-		    }*/
-
+		match simul.compute_best_sequence() {
+		    Some((v,sim)) => {
+			eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
+			v_act = v;
+			self.torpedo = sim.torpedo_v;
+			self.silence = sim.silence_v;
+			self.play_board = sim.board; //update board, should be ok...
+		    },
+		    None => eprintln!("FFFFFF NOT"),
 		}
+
+
 	    }
 	    
-	    if !combo && self.silence == 6 && proba_my > 0.8 {
+	    
+	    if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
 		eprintln!("He found me, silence !!");
 		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
 		self.silence = 0;
 	    }
 	    
-	    else if self.torpedo < 3 {
-		if !combo {
+	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE) && self.torpedo < 3 {
 		    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
 		
 		    self.torpedo += 1;
 		    self.torpedo = cmp::min(self.torpedo,3);
-		}
+		
 	    }
-	    else {
-		if !combo{
+	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE){
 		    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::SILENCE, ..Default::default() });
 		
 		    self.silence += 1;
 		    self.silence = cmp::min(self.silence,6);
-		}
 	    }
 	}
 	else {
