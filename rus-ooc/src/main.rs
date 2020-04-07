@@ -15,7 +15,7 @@ use rand::Rng;
 const MAX_X:u8 = 15;
 const MAX_Y:u8 = 15;
 
-const PATH_INIT:u32 = 10;
+const PATH_INIT:f64 = 1.0;
 
 #[derive( Copy, Clone,Debug)]
 enum Direction {
@@ -400,14 +400,14 @@ impl Board {
 // ------------------------- predictor ------------------
 #[derive(Debug)]
 struct Path {
-    path_coords: Vec::<(u32, Vec::<Coordinate>)>,
+    path_coords: Vec::<(f64, Vec::<Coordinate>)>,
 
     board: Board,
 }
 
 impl Path {
     fn new(board: Board) -> Path{
-	return Path { path_coords:Vec::<(u32, Vec::<Coordinate>)>::new(),board: board}
+	return Path { path_coords:Vec::<(f64, Vec::<Coordinate>)>::new(),board: board}
     }
 
     fn process_torpedo(&mut self, co_t :Coordinate) {
@@ -447,14 +447,14 @@ impl Path {
 	    
     }
 
-    fn _reduce_search_space(v_coord :&Vec::<(u32,Vec::<Coordinate>)>) -> Vec::<(u32,Vec::<Coordinate>)> {
+    fn _reduce_search_space(v_coord :&Vec::<(f64,Vec::<Coordinate>)>) -> Vec::<(f64,Vec::<Coordinate>)> {
 	//ok reduce search space
-	let mut p_coords_reduced = Vec::<(u32,Vec::<Coordinate>)>::new();
+	let mut p_coords_reduced = Vec::<(f64,Vec::<Coordinate>)>::new();
 	
-	let mut frequency: HashMap<&Coordinate, u32> = HashMap::new();
+	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
 	
 	for (freq, coord) in v_coord { 
-	    *frequency.entry(coord.last().unwrap()).or_insert(0) += *freq;
+	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += *freq;
 	}
 	//eprintln!("FREQ {:?}", frequency);
 	
@@ -469,7 +469,7 @@ impl Path {
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
 	let max_search:usize = 500;
-	let mut p_coords_l = Vec::<(u32,Vec::<Coordinate>)>::new();
+	let mut p_coords_l = Vec::<(f64,Vec::<Coordinate>)>::new();
 
 	if self.path_coords.len() > max_search {
 	    eprintln!("REDUCE size before : {}", self.path_coords.len());
@@ -501,7 +501,7 @@ impl Path {
 				cur_path.push(c_valid);
 
 				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
-				let new_freq:u32 = ((*freq as f64)*(((10-2*i) as f64)/10.0)).round() as u32;
+				let new_freq:f64 = (*freq)*(((10-2*i) as f64)/10.0);
 				p_coords_l.push((new_freq,cur_path.to_vec())); //explicit copy
 
 				
@@ -560,31 +560,34 @@ impl Path {
     }
 
     
-    fn comp_variance(v_c:&Vec::<(u32,Vec::<Coordinate>)>) -> (f64,f64) {
+    fn comp_variance(v_c:&Vec::<(f64,Vec::<Coordinate>)>, max_freq:f64) -> (f64,f64) {
 	let mut xm = -1.0;
 	let mut ym = -1.0;
 	
-	let mut tot:u32 = 0;
+	let mut tot:f64 = 0.0;
 
 	//comput mean
 	for (freq, el_v) in v_c {
+	    if *freq < max_freq {
+		continue;
+	    }
 	    let el = el_v.last().unwrap();
 	    
 	    if xm < 0.0 {
-		xm = (*freq*el.x as u32) as f64;
-		ym = (*freq*el.y as u32) as f64;
-		tot += freq;
+		xm = *freq*el.x as f64;
+		ym = *freq*el.y as f64;
+		tot += *freq;
 	    }
 	    else {
-		xm += (*freq*el.x as u32) as f64;
-		ym += (*freq*el.y as u32) as f64;
+		xm += *freq*el.x as f64;
+		ym += *freq*el.y as f64;
 		tot += *freq;
 	    }
 	    
 	}
 
-	xm /= tot as f64;
-	ym /= tot as f64;
+	xm /= tot;
+	ym /= tot;
 
 	//comput variance
 	let mut x_v:f64 = 0.0;
@@ -605,13 +608,13 @@ impl Path {
 
 
     //arg will be sorted !!
-    fn sorted_top_k(v:&mut Vec::<(u32,Vec::<Coordinate>)>, k:usize) -> Option<Vec::<u32>> {
-	v.sort_unstable_by(|(a,_), (b,_)| b.cmp(a)); //reverse sort
+   /* fn sorted_top_k(v:&mut Vec::<(f64,Vec::<Coordinate>)>, k:usize) -> Option<Vec::<f64>> {
+	v.sort_unstable_by(|(a,_), (b,_)| b.partial_cmp(a).unwrap()); //reverse sort
 	
         if v.len() <= k {
 	    None
         } else {
-            let mut result = vec![0; k];
+            let mut result = vec![0.0; k];
 	    result[0] = v[0].0;
 	    let mut cur_idx = 0;
 	    for (e,_) in v.iter().skip(1) {
@@ -626,58 +629,63 @@ impl Path {
 	    Some(result)
         }
     
-    }
+    }*/
 
-    fn get_possible_pos(&self) ->  (usize, Coordinate, (f64, f64)) {
+    fn get_possible_pos(&self) ->  (usize, Coordinate, (f64, f64), f64, Coordinate) {
 		
 	let mut reduced_v = Path::_reduce_search_space(&self.path_coords);
-	reduced_v.sort_unstable_by(|(a,_), (b,_)| b.cmp(a)); //reverse sort
+	reduced_v.sort_unstable_by(|(a,_), (b,_)| b.partial_cmp(a).unwrap()); //reverse sort
 	
 	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", self.path_coords.len());
 
 	//try to keep only the maximum confidences
-	let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
-	
-	let mut xm:f32 = -1.0;
-	let mut ym:f32 = -1.0;
+	//let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
 
-	let mut tot:u32 = 0;
+
+	let max_freq:f64 = reduced_v[cmp::min(reduced_v.len()-1, reduced_v.len()-1) as usize].0;
+	eprintln!("Max k-{} max_freq : {}", cmp::min(4, reduced_v.len()-1), max_freq);
+	
+	
+	let mut xm:f64 = -1.0;
+	let mut ym:f64 = -1.0;
+
+	let mut tot:f64 = 0.0;
 	for (freq, el_v) in &reduced_v {
-	    if freq < max_freq {
+	    if *freq < max_freq {
 		continue;
 	    }
 	    let el = el_v.last().unwrap();
 	    
 	    if xm < 0.0 {
-		xm = (*freq*el.x as u32) as f32;
-		ym = (*freq*el.y as u32) as f32;
-		tot += freq;
+		xm = *freq*el.x as f64;
+		ym = *freq*el.y as f64;
+		tot += *freq;
 	    }
 	    else {
-		xm += (*freq*el.x as u32) as f32;
-		ym += (*freq*el.y as u32) as f32;
+		xm += *freq*el.x as f64;
+		ym += *freq*el.y as f64;
 		tot += *freq;
 	    }
 	    
 	}
 
-	xm /= tot as f32;
-	ym /= tot as f32;
+	xm /= tot;
+	ym /= tot;
 
 	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
 
 	
 	eprintln!("round {:?}", round_coord);
-	if reduced_v.len() < 20
+	if reduced_v.len() < 40
 	{
 	    for (f,v_p) in &reduced_v
 	    {
-		eprintln!("freq : {}, val : {:?}",f, v_p.last().unwrap());
+		eprintln!("freq : {}, prob {},  val : {:?}",f, f/tot, v_p.last().unwrap());
 	    }
 	}
 
-	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v))
+	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v, max_freq), reduced_v[0].0/tot, *reduced_v[0].1.last().unwrap())
     }
     fn process_previous_actions(&mut self, va_issued:&Vec<Action>, diff_life:u8) {
 	let mut coord_torpedo = Coordinate {x:0,y:0};
@@ -879,10 +887,11 @@ impl Simulator {
 	    }
 	}
 
-	//silence then torpedo
-	/*for a_sil in &v_sil {
+	//move silence then torpedo
+	for a_move in &v_move {
+	for a_sil in &v_sil {
 	    for a in &v_torp {
-		let v_try = &vec![*a_sil, *a];
+		let v_try = &vec![*a_move,*a_sil, *a];
 		match self.play_ac_l(v_try)
 		{
 		    Some(sim) => {
@@ -894,7 +903,8 @@ impl Simulator {
 		    None => continue,
 		}
 	    }
-	}*/
+	}
+	}
 	
 
 	
@@ -949,7 +959,7 @@ impl  Predictor  {
 
 	if possible_move != 0 {
 	    let next_dir = *dir.front().unwrap();
-	    let mut my_n_pos = 1000;
+	    let mut proba_my = 0.0;
 
 	    let mut combo = false;
 	    
@@ -957,15 +967,16 @@ impl  Predictor  {
 
 
 		eprintln!("*** MY possible pos");
-		let (my_n_pos_l, _,_) = self.my_path.get_possible_pos();
-		my_n_pos = my_n_pos_l;
+		let (my_n_pos_l, _,_, proba_my_loc, _) = self.my_path.get_possible_pos();
 
-		eprintln!("mynpos {}", my_n_pos);
+		proba_my = proba_my_loc;
+		eprintln!("mynpos proba {}", proba_my);
 		
 	
-		let (n_pos, coord, variance) = self.path.get_possible_pos();
-		eprintln!("*** ADV possible pos np: {}, var: {:?}", n_pos, variance);
-		if n_pos > 20 /*|| diff_life !=0*/ {
+		let (n_pos, coord_mean, variance, prob, max_prob_coord) = self.path.get_possible_pos();
+		let coord = max_prob_coord;
+		eprintln!("*** ADV possible pos np: {}, var: {:?}, prob : {}", n_pos, variance, prob);
+		if prob < 0.2 /*|| diff_life !=0*/ {
 		    eprintln!("Action: no confidence");
 		}
 		else {
@@ -1003,7 +1014,8 @@ impl  Predictor  {
 		}
 	    }
 	    
-	    if !combo && self.silence == 6 && my_n_pos < 10 {
+	    if !combo && self.silence == 6 && proba_my > 0.8 {
+		eprintln!("He found me, silence !!");
 		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
 		self.silence = 0;
 	    }
