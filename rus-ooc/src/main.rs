@@ -6,14 +6,16 @@ use std::collections::LinkedList;
 use std::cmp::Reverse;
 use std::cmp;
 use std::str::FromStr;
-use std::collections::VecDeque;
+//use itertools::Itertools;
+//use std::collections::VecDeque;
 
-extern crate rand;
+//extern crate rand;
 use rand::Rng;
-use std::fmt;
+//use std::fmt;
 const MAX_X:u8 = 15;
 const MAX_Y:u8 = 15;
 
+const PATH_INIT:u32 = 10;
 
 #[derive( Copy, Clone,Debug)]
 enum Direction {
@@ -73,6 +75,8 @@ impl Coordinate {
 	else if self.x < 15 && self.y < 15 {9}
 	else {panic!("Bad sector")}
     }
+
+
 }
 
 // ----------- Action 
@@ -429,20 +433,18 @@ impl Path {
 	    _ => panic!("Bad sector"),
 	}
 	self.path_coords.retain(|(_freq,ve)| {
-	    let mut find = false;
-	    
 	    for x in rx..(rx + 5){
 		for y in ry..(ry + 5){
                     if ve.last().unwrap() == &(Coordinate {x:x, y:y}) {
-			find = true;
+			return true;
 		    }
 		}
-		if find {
-		    break;
-		}
 	    }
-	    find
-	})
+	    return false;
+	});
+	//reset the paths
+	self.path_coords = self.path_coords.iter().map(|(_,ve)| (PATH_INIT, vec![*ve.last().unwrap()])).collect();
+	    
     }
 
     fn _reduce_search_space(v_coord :&Vec::<(u32,Vec::<Coordinate>)>) -> Vec::<(u32,Vec::<Coordinate>)> {
@@ -481,7 +483,7 @@ impl Path {
 	    //add new possible coord for each paths
 	    //adv can make a 0 move
 
-	    p_coords_l.push((1, v.to_vec()));
+	    p_coords_l.push((*freq, v.to_vec()));
 	   
 	    
 	    for d in [Direction::N, Direction::S, Direction::W, Direction::E].iter() {
@@ -498,7 +500,9 @@ impl Path {
 				
 				cur_path.push(c_valid);
 
-				p_coords_l.push((1,cur_path.to_vec())); //explicit copy
+				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
+				let new_freq:u32 = ((*freq as f64)*(((10-2*i) as f64)/10.0)).round() as u32;
+				p_coords_l.push((new_freq,cur_path.to_vec())); //explicit copy
 
 				
 				cur_pos = c_valid;
@@ -520,25 +524,27 @@ impl Path {
 	if self.path_coords.is_empty() {
 	    for x in 0..MAX_X {
 		for y in 0..MAX_Y {
-		    self.path_coords.push((1,vec![Coordinate {x:x, y:y}]));
+		    self.path_coords.push((PATH_INIT,vec![Coordinate {x:x, y:y}]));
 		}
 	    }
 	}
 	else {
-	    for (feq,p) in self.path_coords.iter_mut() {
+	    for (_,p) in self.path_coords.iter_mut() {
 		match self.board.check_dir(p.last().unwrap(), &d) {
 		    Some(c_valid) => {
 			p.push(c_valid);
 		    }
 		
-		    None    => p.clear(),
+		    None    => p.clear(), //impossible we clear the path
 		}
 	    }
 	    //remove all element empty
-	    self.path_coords.retain(|(freq, ve)| !ve.is_empty())
+	    self.path_coords.retain(|(_, ve)| !ve.is_empty())
 	}
     }
 
+    fn process_mine(&mut self) {
+    }
     fn process_actions(&mut self, v_act:&Vec<Action>) {
 	for a in v_act {
 	    match a.ac {
@@ -547,16 +553,85 @@ impl Path {
 		Action_type::TORPEDO =>  self.process_torpedo(a.coord),
 		Action_type::SONAR => {},
 		Action_type::SILENCE => self.process_silence(),
-		Action_type::MINE => {},
+		Action_type::MINE => self.process_mine(),
 		Action_type::TRIGGER => {},
 	    }   
 	}
     }
 
-        
-    fn get_possible_pos(&self) ->  (usize, Coordinate) {
+    
+    fn comp_variance(v_c:&Vec::<(u32,Vec::<Coordinate>)>) -> (f64,f64) {
+	let mut xm = -1.0;
+	let mut ym = -1.0;
+	
+	let mut tot:u32 = 0;
+
+	//comput mean
+	for (freq, el_v) in v_c {
+	    let el = el_v.last().unwrap();
+	    
+	    if xm < 0.0 {
+		xm = (*freq*el.x as u32) as f64;
+		ym = (*freq*el.y as u32) as f64;
+		tot += freq;
+	    }
+	    else {
+		xm += (*freq*el.x as u32) as f64;
+		ym += (*freq*el.y as u32) as f64;
+		tot += *freq;
+	    }
+	    
+	}
+
+	xm /= tot as f64;
+	ym /= tot as f64;
+
+	//comput variance
+	let mut x_v:f64 = 0.0;
+	let mut y_v:f64 = 0.0;
+	
+	for (freq, el_v) in v_c {
+	    let el = el_v.last().unwrap();
+
+	    x_v += (*freq as f64)*(el.x as f64 - xm).powi(2);
+	    y_v += (*freq as f64)*(el.y as f64 - ym).powi(2);
+	}
+
+	x_v /= tot as f64;
+	y_v /= tot as f64;
+
+	(x_v.sqrt(), y_v.sqrt())
+    }
+
+
+    //arg will be sorted !!
+    fn sorted_top_k(v:&mut Vec::<(u32,Vec::<Coordinate>)>, k:usize) -> Option<Vec::<u32>> {
+	v.sort_unstable_by(|(a,_), (b,_)| b.cmp(a)); //reverse sort
+	
+        if v.len() <= k {
+	    None
+        } else {
+            let mut result = vec![0; k];
+	    result[0] = v[0].0;
+	    let mut cur_idx = 0;
+	    for (e,_) in v.iter().skip(1) {
+		if *e != result[cur_idx] {
+		    cur_idx +=1;
+		    result[cur_idx] = *e;
+		    if cur_idx == k-1 {
+			break;
+		    }
+		}
+	    }
+	    Some(result)
+        }
+    
+    }
+
+    fn get_possible_pos(&self) ->  (usize, Coordinate, (f64, f64)) {
 		
-	let reduced_v = Path::_reduce_search_space(&self.path_coords);
+	let mut reduced_v = Path::_reduce_search_space(&self.path_coords);
+	reduced_v.sort_unstable_by(|(a,_), (b,_)| b.cmp(a)); //reverse sort
 	
 	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", self.path_coords.len());
@@ -602,7 +677,7 @@ impl Path {
 	    }
 	}
 
-	(reduced_v.len(),round_coord)
+	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v))
     }
     fn process_previous_actions(&mut self, va_issued:&Vec<Action>, diff_life:u8) {
 	let mut coord_torpedo = Coordinate {x:0,y:0};
@@ -882,19 +957,16 @@ impl  Predictor  {
 
 
 		eprintln!("*** MY possible pos");
-		let (my_n_pos_l, _) = self.my_path.get_possible_pos();
+		let (my_n_pos_l, _,_) = self.my_path.get_possible_pos();
 		my_n_pos = my_n_pos_l;
 
-		let diff_life = self.my_life[self.my_life.len() - 2] - *self.my_life.last().unwrap();
-		if diff_life > 0 {
-		    my_n_pos = 0; //critique, touché
-		}
 		eprintln!("mynpos {}", my_n_pos);
 		
-		eprintln!("*** ADV possible pos");
-		let (n_pos, coord) = self.path.get_possible_pos();
+	
+		let (n_pos, coord, variance) = self.path.get_possible_pos();
+		eprintln!("*** ADV possible pos np: {}, var: {:?}", n_pos, variance);
 		if n_pos > 20 /*|| diff_life !=0*/ {
-		    eprintln!("Action: no confidence (diff life ) {}", diff_life);
+		    eprintln!("Action: no confidence");
 		}
 		else {
 
