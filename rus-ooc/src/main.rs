@@ -807,7 +807,7 @@ impl Simulator {
 		    for i in 0..a.sector {
 			//eprintln!("beg Action pass {}",i);
 			match sim_sim.board.check_dir(&loc_pc, &a.dir) {
-			    Some(c_valid) => {loc_pc = c_valid; eprintln!("Action {} pass",i);},
+			    Some(c_valid) => loc_pc = c_valid,
 			    None    => return None,
 			}
 		    }
@@ -864,8 +864,8 @@ impl Simulator {
 
 
 
-	if self.proba_coord >= 0.2 && self.proba_coord <= 0.3 {
-	    eprintln!("Proba inf >= 0.2 <=0.3, only torpedo");
+	if self.proba_coord >= 0.1 && self.proba_coord <= 0.2 && self.silence_v == 6 {
+	    eprintln!("Proba inf >= 0.2 <=0.3, only torpedo if assez silence");
 	    for a in &v_torp {
 		let v_try = &vec![*a];
 		match self.play_ac_l(v_try)
@@ -880,7 +880,8 @@ impl Simulator {
 		}
 	    }
 	}
-	else if self.proba_coord <= 0.8 {
+	
+	if self.proba_coord > 0.2 && self.proba_coord <= 0.8 {
 	    //move then torpedo
 	    eprintln!("Proba inf < 0.8, move +  torpedo");
 	    for a_move in &v_move {
@@ -899,7 +900,8 @@ impl Simulator {
 		}
 	    }
 	}
-	else {
+	
+	if self.proba_coord > 0.9 {
 	    //move silence then torpedo
 	    eprintln!("Proba inf > 0.9, move + silence torpedo");
 	    for a_move in &v_move {
