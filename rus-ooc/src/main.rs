@@ -424,8 +424,8 @@ impl Path {
 
     fn process_surface(&mut self, sector :u8) {
 	eprintln!("Process surface");
-	let mut rx:u8 = 0;
-	let mut ry:u8 = 0;
+	let rx:u8;
+	let ry:u8;
 	match sector {
 	    1 => {rx=0; ry=0},
             2 => {rx=5; ry= 0},
@@ -438,9 +438,14 @@ impl Path {
             9 => {rx=10; ry= 10},
 	    _ => panic!("Bad sector"),
 	}
+
+	let l_g:&Board = &self.board;
 	self.path_coords.retain(|(_,ve)| {
 	    for x in rx..(rx + 5){
 		for y in ry..(ry + 5){
+		    if l_g.grid[x as usize][y as usize] == 10 {
+			continue; //Do not add the island
+		    }
                     if ve.last().unwrap() == &(Coordinate {x:x, y:y}) {
 			return true;
 		    }
@@ -510,8 +515,8 @@ impl Path {
 				cur_path.push(c_valid);
 
 				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
-				//let new_freq:f64 = (*freq)*(((10-2*i) as f64)/10.0);
-				let new_freq:f64 = *freq;
+				let new_freq:f64 = (*freq)*(((10-2*i) as f64)/10.0);
+				//let new_freq:f64 = *freq;
 				p_coords_l.push((new_freq,cur_path.to_vec())); //explicit copy
 
 				
@@ -554,7 +559,7 @@ impl Path {
 	    }
 	}
 	//remove all element empty
-	self.path_coords.retain(|(_, ve)| !ve.is_empty())
+	self.path_coords.retain(|(_, ve)| !ve.is_empty());
     }
 
 
@@ -884,7 +889,7 @@ impl Simulator {
 	    }	    
 	}
 	//eprintln!("ret val {}",sim_sim.adv_lost);
-	if sim_sim.play_life - sim_sim.play_lost <= 0  { //if we loose, bad action...
+	if sim_sim.play_life as i32 - sim_sim.play_lost as i32 <= 0  { //if we loose, bad action...
 	    None
 	}
 	else {
