@@ -178,9 +178,14 @@ impl Action {
 //---- board
 
 
+thread_local! {
+    static grid_cache_torpedo:HashMap::<Coordinate, Vec::<Coordinate> > = HashMap::<Coordinate, Vec::<Coordinate> >::new();
+}
 #[derive( Copy, Clone,Debug)]
 struct Board {
-    grid: [[u8; MAX_X as usize]; MAX_Y as usize]
+    grid: [[u8; MAX_X as usize]; MAX_Y as usize],
+
+  
 	
 }
 
@@ -214,7 +219,8 @@ impl Board {
 		}
 		    
 	    }
-	}	
+	}
+	
 	Board {grid:r}
     }
 
@@ -432,7 +438,7 @@ impl Path {
             9 => {rx=10; ry= 10},
 	    _ => panic!("Bad sector"),
 	}
-	self.path_coords.retain(|(_freq,ve)| {
+	self.path_coords.retain(|(_,ve)| {
 	    for x in rx..(rx + 5){
 		for y in ry..(ry + 5){
                     if ve.last().unwrap() == &(Coordinate {x:x, y:y}) {
@@ -443,7 +449,10 @@ impl Path {
 	    return false;
 	});
 	//reset the paths
-	self.path_coords = self.path_coords.iter().map(|(_,ve)| (PATH_INIT, vec![*ve.last().unwrap()])).collect();
+	for e in &mut self.path_coords {
+	    *e = (e.0, vec![*e.1.last().unwrap()]);
+	}
+	
 	    
     }
 
@@ -543,8 +552,7 @@ impl Path {
 	}
     }
 
-    fn process_mine(&mut self) {
-    }
+
     fn process_actions(&mut self, v_act:&Vec<Action>) {
 	for a in v_act {
 	    match a.ac {
@@ -553,7 +561,7 @@ impl Path {
 		Action_type::TORPEDO =>  self.process_torpedo(a.coord),
 		Action_type::SONAR => {},
 		Action_type::SILENCE => self.process_silence(),
-		Action_type::MINE => self.process_mine(),
+		Action_type::MINE => {},
 		Action_type::TRIGGER => {},
 	    }   
 	}
@@ -687,10 +695,29 @@ impl Path {
 
 	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v, max_freq), reduced_v[0].0/tot, *reduced_v[0].1.last().unwrap())
     }
-    fn process_previous_actions(&mut self, va_issued:&Vec<Action>, diff_life:u8) {
+    fn process_previous_actions(&mut self, va_issued:&Vec<Action>, va_opp_issued:&Vec<Action>, diff_life_arg:u8) {
+
+	let mut diff_life = diff_life_arg;
+	//ok tricky, if the opponement made an action that reduce it's life we need take it into account
+	
+	for a in va_opp_issued {
+	    match a.ac {
+		Action_type::MOVE => {},
+		Action_type::SURFACE => {
+		    diff_life -= 1;
+		    eprintln!("== correction with surface");
+		},
+		Action_type::TORPEDO =>  {},
+		Action_type::SONAR => {},
+		Action_type::SILENCE => {},
+		Action_type::MINE => {},
+		Action_type::TRIGGER => {},
+	    }   
+	}
+	
 	let mut coord_torpedo = Coordinate {x:0,y:0};
-	if  va_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO}) {
-	    eprintln!("Found torpedo previous");
+	if  va_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO || v.ac == Action_type::TRIGGER}) {
+	    eprintln!("Found torpedo or trigger previous");
 	    //let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
 	    match  diff_life {
 		1 => {
@@ -726,6 +753,7 @@ struct Simulator {
     adv_lost: u8,
     play_lost: u8,
     proba_coord: f64,
+    
 }
 
 impl Simulator {
@@ -767,6 +795,14 @@ impl Simulator {
 		Action_type::TORPEDO => {
 
 		    //eprintln!("Torp val co {:?}, vec {:?}", a.coord, sim_sim.board.get_torpedo_pos_from_coord(&a.coord));
+
+
+
+		    if sim_sim.play_c.dist(&a.coord) > 4 {
+			//first verif
+			//eprintln!("to long {:?}", a.coord);
+			return None;
+		     }
 		    
 		    let list_torps = sim_sim.board.get_torpedo_pos_from_coord(&sim_sim.play_c);
 		    //eprintln!("Size list {:?} {}", sim_sim.play_c, list_torps.len());
@@ -864,7 +900,7 @@ impl Simulator {
 
 
 
-	if self.proba_coord >= 0.1 && self.proba_coord <= 0.2 && self.silence_v == 6 {
+	if self.proba_coord <= 0.2 || self.silence_v == 6 {
 	    eprintln!("Proba inf >= 0.2 <=0.3, only torpedo if assez silence");
 	    for a in &v_torp {
 		let v_try = &vec![*a];
@@ -881,7 +917,7 @@ impl Simulator {
 	    }
 	}
 	
-	if self.proba_coord > 0.2 && self.proba_coord <= 0.8 {
+	if self.proba_coord > 0.2 {
 	    //move then torpedo
 	    eprintln!("Proba inf < 0.8, move +  torpedo");
 	    for a_move in &v_move {
@@ -1041,7 +1077,7 @@ impl  Predictor  {
 	self.actions_issued = v_act.to_vec(); //copy here
 	v_act
     }
-    fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8, oponent_orders:&Vec::<Action>) {
+    fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8, opponent_orders:&Vec::<Action>) {
 	self.op_life.push(opp_life);
 	self.cur_co = Coordinate {x:x,y:y};
 	self.play_board.set_visited(&self.cur_co);
@@ -1050,13 +1086,13 @@ impl  Predictor  {
 	if self.op_life.len() > 2 {
 	    eprintln!("Update ADV coordinate");
 	    let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
-	    self.path.process_previous_actions(&self.actions_issued, diff);
+	    self.path.process_previous_actions(&self.actions_issued, opponent_orders, diff);
 	}
 
 	if self.my_life.len() > 2 {
 	    eprintln!("Update MY coordinate");
 	    let diff = self.my_life[self.my_life.len() - 2] - *self.my_life.last().unwrap();
-	    self.my_path.process_previous_actions(oponent_orders, diff);
+	    self.my_path.process_previous_actions(opponent_orders, &self.actions_issued, diff);
 	}
 
     }
