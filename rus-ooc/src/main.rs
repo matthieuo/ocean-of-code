@@ -530,27 +530,31 @@ impl Path {
     
     fn process_move(&mut self, d: Direction) {
 	eprintln!("Process MOVE");
+
 	
 	if self.path_coords.is_empty() {
+	    eprintln!("+-+-----+++-+ path coords empty, initialize");
 	    for x in 0..MAX_X {
 		for y in 0..MAX_Y {
+		    if self.board.grid[x as usize][y as usize] == 10 {
+			continue; //Do not add the island
+		    }
 		    self.path_coords.push((PATH_INIT,vec![Coordinate {x:x, y:y}]));
 		}
 	    }
 	}
-	else {
-	    for (_,p) in self.path_coords.iter_mut() {
-		match self.board.check_dir(p.last().unwrap(), &d) {
-		    Some(c_valid) => {
-			p.push(c_valid);
-		    }
-		
-		    None    => p.clear(), //impossible we clear the path
+	
+	for (_,p) in self.path_coords.iter_mut() {
+	    match self.board.check_dir(p.last().unwrap(), &d) {
+		Some(c_valid) => {
+		    p.push(c_valid);
 		}
+		
+		None    => p.clear(), //impossible we clear the path
 	    }
-	    //remove all element empty
-	    self.path_coords.retain(|(_, ve)| !ve.is_empty())
 	}
+	//remove all element empty
+	self.path_coords.retain(|(_, ve)| !ve.is_empty())
     }
 
 
@@ -839,6 +843,10 @@ impl Simulator {
 		    else if a.coord.l2_dist(&sim_sim.play_c) == 1 {
 			sim_sim.play_lost = 1;
 		    }
+
+		    if sim_sim.proba_coord < 0.7 && sim_sim.play_lost > 0 {
+			return None //do not allow to loose life if we are unsure of the position
+		    }
 		    
 		}
 		Action_type::SONAR => return None,
@@ -876,7 +884,7 @@ impl Simulator {
 	    }	    
 	}
 	//eprintln!("ret val {}",sim_sim.adv_lost);
-	if sim_sim.play_life - sim_sim.play_lost <= 0 { //if we loose, bad action...
+	if sim_sim.play_life - sim_sim.play_lost <= 0  { //if we loose, bad action...
 	    None
 	}
 	else {
@@ -1013,14 +1021,8 @@ impl  Predictor  {
 	eprintln!("Torpedo val {}",self.torpedo);
 	let mut v_act = Vec::<Action>::new();
 	//let e = self.play_board.num_avail_pos(&self.cur_co);
-	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut HashSet::<Coordinate>::new());
-	
-	//let e = (dir.len(), dir.front());
 
-	let possible_move = dir.len();
-
-	if possible_move != 0 {
-	    let next_dir = *dir.front().unwrap();
+	    
 	    let mut proba_my = 0.0;
 	    
 	    if !self.my_path.path_coords.is_empty() && !self.path.path_coords.is_empty() {
@@ -1062,7 +1064,10 @@ impl  Predictor  {
 
 	    }
 	    
-	    
+	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut HashSet::<Coordinate>::new());
+	
+	if !dir.is_empty() {
+	    let next_dir = *dir.front().unwrap();
 	    if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
 		eprintln!("He found me, silence !!");
 		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
@@ -1083,7 +1088,7 @@ impl  Predictor  {
 		    self.silence = cmp::min(self.silence,6);
 	    }
 	}
-	else {
+	if v_act.is_empty() { //ok no action so surface
 	    self.play_board.rem_visited();
 	    eprintln!("SURFACE, sector {}",self.cur_co.to_surface());
 	    v_act.push(Action { ac: Action_type::SURFACE, sector:self.cur_co.to_surface(), ..Default::default() });
