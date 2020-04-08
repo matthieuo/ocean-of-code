@@ -510,7 +510,8 @@ impl Path {
 				cur_path.push(c_valid);
 
 				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
-				let new_freq:f64 = (*freq)*(((10-2*i) as f64)/10.0);
+				//let new_freq:f64 = (*freq)*(((10-2*i) as f64)/10.0);
+				let new_freq:f64 = *freq;
 				p_coords_l.push((new_freq,cur_path.to_vec())); //explicit copy
 
 				
@@ -753,6 +754,9 @@ struct Simulator {
     adv_lost: u8,
     play_lost: u8,
     proba_coord: f64,
+
+    adv_life:u8,
+    play_life:u8,
     
 }
 
@@ -762,14 +766,18 @@ impl Simulator {
 	   adv_c:Coordinate,
 	   torpedo_v:u8,
 	   silence_v:u8,
-	   proba_coord:f64) -> Simulator { Simulator {board:l_board,
-						      play_c:play_c,
-						      adv_c:adv_c,
-						      silence_v:silence_v,
-						      torpedo_v:torpedo_v,
-						      adv_lost:0,
-						      proba_coord:proba_coord,
-						      play_lost:0}}
+	   proba_coord:f64,
+	   play_life:u8,
+	   adv_life:u8) -> Simulator { Simulator {board:l_board,
+						  play_c:play_c,
+						  adv_c:adv_c,
+						  silence_v:silence_v,
+						  torpedo_v:torpedo_v,
+						  adv_lost:0,
+						  proba_coord:proba_coord,
+						  play_lost:0,
+						  adv_life:adv_life,
+						  play_life:play_life}}
 
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<Simulator> {
 	let mut sim_sim = *self;
@@ -840,7 +848,7 @@ impl Simulator {
 		    }
 
 		    let mut loc_pc:Coordinate = sim_sim.play_c;
-		    for i in 0..a.sector {
+		    for _ in 0..a.sector {
 			//eprintln!("beg Action pass {}",i);
 			match sim_sim.board.check_dir(&loc_pc, &a.dir) {
 			    Some(c_valid) => loc_pc = c_valid,
@@ -849,7 +857,7 @@ impl Simulator {
 		    }
 		    
 		    //ok here we tested all coords and it's OK, now write on the board
-		    for i in 0..a.sector {
+		    for _ in 0..a.sector {
 			//eprintln!("beg Action OK {}",i);
 			match sim_sim.board.check_dir(&sim_sim.play_c, &a.dir) {
 			    
@@ -868,7 +876,12 @@ impl Simulator {
 	    }	    
 	}
 	//eprintln!("ret val {}",sim_sim.adv_lost);
-	Some(sim_sim)
+	if sim_sim.play_life - sim_sim.play_lost <= 0 { //if we loose, bad action...
+	    None
+	}
+	else {
+	    Some(sim_sim)
+	}
     }
 
     fn compute_best_sequence(&self) -> Option<(Vec::<Action>, Simulator)> {
@@ -900,8 +913,8 @@ impl Simulator {
 
 
 
-	if self.proba_coord <= 0.2 || self.silence_v == 6 {
-	    eprintln!("Proba inf >= 0.2 <=0.3, only torpedo if assez silence");
+	if self.proba_coord <= 0.2 && self.silence_v == 6 {
+	    eprintln!("Proba <=0.2, only torpedo if assez silence");
 	    for a in &v_torp {
 		let v_try = &vec![*a];
 		match self.play_ac_l(v_try)
@@ -919,7 +932,7 @@ impl Simulator {
 	
 	if self.proba_coord > 0.2 {
 	    //move then torpedo
-	    eprintln!("Proba inf < 0.8, move +  torpedo");
+	    eprintln!("Proba inf > 0.2, move +  torpedo");
 	    for a_move in &v_move {
 		for a in &v_torp {
 		    let v_try = &vec![*a_move, *a];
@@ -1031,7 +1044,9 @@ impl  Predictor  {
 					   coord,
 					   self.torpedo,
 					   self.silence,
-					   prob);
+					   prob,
+					   *self.my_life.last().unwrap(),
+					   *self.op_life.last().unwrap());
 			
 		match simul.compute_best_sequence() {
 		    Some((v,sim)) => {
