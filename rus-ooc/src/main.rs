@@ -1017,6 +1017,11 @@ impl Simulator {
 		}
 	    }
 
+
+	if self.proba_coord <= 0.2 && self.silence_v < 6 {
+	    //proba is to low, need to create silence
+	    return None
+	}
 	if self.proba_coord <= 0.2 && self.silence_v == 6 {
 	    eprintln!("Proba <=0.2, only torpedo if assez silence, early return since proba low");
 	    return ret_val
