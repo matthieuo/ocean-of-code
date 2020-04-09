@@ -322,8 +322,10 @@ impl Board {
 
 
     
-    fn _rec_best_path(&self, cur_pos :&Coordinate, hist :&mut HashSet::<Coordinate>) -> (u8, LinkedList::<Direction>) {
-	hist.insert(*cur_pos);
+    fn _rec_best_path(&self, cur_pos :&Coordinate, hist: &mut [[bool; MAX_X as usize]; MAX_Y as usize]) -> (u8, LinkedList::<Direction>) {
+	//hist.insert(*cur_pos);
+	hist[cur_pos.x as usize][cur_pos.y as usize] = true;
+	
 	let mut sum_a = 1;
 
 	let mut dir_max = LinkedList::<Direction>::new();
@@ -348,7 +350,8 @@ impl Board {
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E]{
 	    match self.check_dir(cur_pos, d) {
 		Some(c_valid) => {
-		    if !hist.contains(&c_valid) {
+		    //if !hist.contains(&c_valid) {
+		    if !hist[c_valid.x as usize][c_valid.y as usize] {
 			let (val, r_l) = self._rec_best_path(&c_valid, hist);
 			sum_a += val;
 
@@ -728,6 +731,11 @@ impl Path {
 
 	let mut diff_life = diff_life_arg;
 	//ok tricky, if the opponement made an action that reduce it's life we need take it into account
+
+	//if we have torpedo in both actions, we cannot say anothing
+	if diff_life_arg !=0 && va_issued.iter().any(|v| v.ac == Action_type::TORPEDO) && va_opp_issued.iter().any(|v| v.ac == Action_type::TORPEDO) {
+	    return
+	}
 	
 	for a in va_opp_issued {
 	    match a.ac {
@@ -759,10 +767,11 @@ impl Path {
 		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 0});
 		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path_coords) );
 		},
-		_ => {
+		0 => {
 		    eprintln!("torp NO touch  coord {:?}", coord_torpedo);
 		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) > 1});
-		}
+		},
+		_ => panic!("diff life != 1,2,0 val : {}",diff_life),
 		    
 	    }
 
@@ -945,8 +954,8 @@ impl Simulator {
 
 
 
-	if self.proba_coord <= 0.2 && self.silence_v == 6 {
-	    eprintln!("Proba <=0.2, only torpedo if assez silence");
+	//if self.proba_coord <= 0.2 && self.silence_v == 6 {
+//	    eprintln!("Proba <=0.2, only torpedo if assez silence");
 	    for a in &v_torp {
 		let v_try = &vec![*a];
 		match self.play_ac_l(v_try)
@@ -960,6 +969,10 @@ impl Simulator {
 		    None => continue,
 		}
 	    }
+
+	if self.proba_coord <= 0.2 && self.silence_v == 6 {
+	    eprintln!("Proba <=0.2, only torpedo if assez silence, early return since proba low");
+	    return ret_val
 	}
 	
 	if self.proba_coord > 0.2 {
@@ -1080,6 +1093,7 @@ impl  Predictor  {
 			v_act = v;
 			self.torpedo = sim.torpedo_v;
 			self.silence = sim.silence_v;
+			self.cur_co = sim.play_c;
 			self.play_board = sim.board; //update board, should be ok...
 		    },
 		    None => eprintln!("FFFFFF NOT"),
@@ -1088,7 +1102,7 @@ impl  Predictor  {
 
 	    }
 	    
-	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut HashSet::<Coordinate>::new());
+	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
 	
 	if !dir.is_empty() {
 	    let next_dir = *dir.front().unwrap();
