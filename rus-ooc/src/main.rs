@@ -178,9 +178,6 @@ impl Action {
 //---- board
 
 
-thread_local! {
-    static grid_cache_torpedo:HashMap::<Coordinate, Vec::<Coordinate> > = HashMap::<Coordinate, Vec::<Coordinate> >::new();
-}
 #[derive( Copy, Clone,Debug)]
 struct Board {
     grid: [[u8; MAX_X as usize]; MAX_Y as usize],
@@ -331,7 +328,23 @@ impl Board {
 
 	let mut dir_max = LinkedList::<Direction>::new();
 	let mut max_val = 0;
+
+	/*let vec_it:Vec<Direction>;
+
+	if cur_pos.x<=7 && cur_pos.y <= 7 {
+	    vec_it = vec![Direction::S, Direction::E, Direction::W, Direction::N];
+	}
+	else if cur_pos.x<=7 && cur_pos.y > 7 {
+	    vec_it = vec![Direction::N, Direction::E, Direction::W, Direction::S];
+	}
+	else if cur_pos.x>7 && cur_pos.y <= 7 {
+	    vec_it = vec![Direction::S, Direction::W, Direction::E, Direction::N];
+	}
+	else  {
+	    vec_it = vec![Direction::N, Direction::W, Direction::E, Direction::S];
+	}
 	    
+	for d in &vec_it{*/
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E]{
 	    match self.check_dir(cur_pos, d) {
 		Some(c_valid) => {
@@ -354,16 +367,17 @@ impl Board {
     }
     
     
-    fn _rec_num_pos(&self, cur_pos :&Coordinate, hist :&mut HashSet::<Coordinate>) -> u8 {
-	hist.insert(*cur_pos);
+    fn _rec_num_pos(&self, cur_pos :&Coordinate, hist: &mut [[bool; MAX_X as usize]; MAX_Y as usize]) -> u8 {
+	hist[cur_pos.x as usize][cur_pos.y as usize] = true;
+	
 	let mut sum_a = 1;
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E]{
 	    match self.check_dir(cur_pos, d) {
 		Some(c_valid) => {
-		    if !hist.contains(&c_valid) {
+		    if !hist[c_valid.x as usize][c_valid.y as usize] {
 			sum_a += self._rec_num_pos(&c_valid, hist);
 		    }
-		}
+		},
 		None    => continue,
 	    }
 	  
@@ -372,10 +386,11 @@ impl Board {
     }
     fn num_avail_pos(&self, cur_pos :&Coordinate) -> [(u8,Direction); 4] {
 	let mut arr:[(u8,Direction); 4] = [(0,Direction::N) ;4];
+	let mut grid: [[bool; MAX_X as usize]; MAX_Y as usize] = [[false; MAX_X as usize]; MAX_Y as usize];
 	
 	for (idx,d) in [Direction::N, Direction::S, Direction::W, Direction::E].iter().enumerate(){
 	    match self.check_dir(cur_pos, d) {
-		Some(c_valid) => arr[idx] = (self._rec_num_pos(&c_valid, &mut HashSet::<Coordinate>::new()), *d),
+		Some(c_valid) => arr[idx] = (self._rec_num_pos(&c_valid, &mut grid), *d),
 		None    => arr[idx] = (0, *d)
 	    }
     
@@ -387,7 +402,7 @@ impl Board {
 
     fn initial_position(&self) -> Coordinate {
 	loop {
-	    let numx = 0; //rand::thread_rng().gen_range(0, 15);
+	    let numx = 0; // rand::thread_rng().gen_range(0, 15);
 	    let numy = rand::thread_rng().gen_range(0, 15);
 	    
 	    if self.get_e(&Coordinate {x:numx as u8, y:numy as u8}) == 0 {
@@ -523,6 +538,10 @@ impl Path {
 				cur_pos = c_valid;
 
 			    }
+			    else {
+				break
+			    }
+			    
 			},
 			None    => break,
 		    }
