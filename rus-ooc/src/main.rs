@@ -282,6 +282,30 @@ impl Board {
 	ret_v
 	
     }
+
+      fn get_nsew_coord(&self, c:&Coordinate) -> Vec::<Coordinate> {
+	let mut ret_v = Vec::<Coordinate>::new();
+
+	  let x = c.x as i8;
+	  let y = c.y as i8;
+	  for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
+	      let x_a;
+	      let y_a;
+	      match d {
+		  Direction::N => {x_a=0; y_a=-1},
+		  Direction::S => {x_a=0; y_a=1},
+		  Direction::W => {x_a=1; y_a=0},
+		  Direction::E => {x_a=-1; y_a=0},
+	      }
+	      
+	      if !(x+x_a < 0 || x+x_a >= MAX_X as i8|| y+y_a < 0 || y+y_a >= MAX_Y as i8 || self.get_e(&Coordinate {x:(x +x_a) as u8, y:(y + y_a) as u8}) == 10) {
+		  ret_v.push(Coordinate {x:(x +x_a) as u8, y:(y + y_a) as u8});
+	      }
+	  }
+	ret_v
+	
+      }
+    
     //return the coord following the direction if correct
     fn check_dir(&self, c: &Coordinate, dir: &Direction) -> Option<Coordinate>  {
 	let mut xl = c.x as i8;
@@ -427,17 +451,31 @@ struct Path {
     path_coords: Vec::<(f64, Vec::<Coordinate>)>,
 
     board: Board,
+    reduced:bool,
 }
 
 impl Path {
     fn new(board: Board) -> Path{
-	return Path { path_coords:Vec::<(f64, Vec::<Coordinate>)>::new(),board: board}
+	return Path { path_coords:Vec::<(f64, Vec::<Coordinate>)>::new(),board: board, reduced:false}
     }
 
+    fn process_trigger(&mut self, co_t :Coordinate) {
+	eprintln!("Process trigger, {:?}",co_t);
+	//remove  all paths which not contain co_t
+
+	if !self.reduced {
+	    eprintln!("OK not reduced, we process trigger");
+	    let v_c = self.board.get_nsew_coord(&co_t);
+
+	    self.path_coords.retain(|(_, ve)| ve.iter().any(|val| v_c.contains(val)));
+	}
+	
+    }
+	
     fn process_torpedo(&mut self, co_t :Coordinate) {
 	eprintln!("Process torpedo");
 
-	self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&co_t) <= 4});
+	self.path_coords.retain(|(_, ve)| {ve.last().unwrap().dist(&co_t) <= 4});
     }
 
     fn process_surface(&mut self, sector :u8) {
@@ -507,7 +545,7 @@ impl Path {
 	    eprintln!("REDUCE size before : {}", self.path_coords.len());
 
 	    self.path_coords =  Path::_reduce_search_space(&self.path_coords);
-	    
+	    self.reduced = true;
 	    eprintln!("REDUCE size after : {}", self.path_coords.len());
 	}
 	
@@ -594,7 +632,7 @@ impl Path {
 		Action_type::SONAR => {},
 		Action_type::SILENCE => self.process_silence(),
 		Action_type::MINE => {},
-		Action_type::TRIGGER => {},
+		Action_type::TRIGGER => {self.process_trigger(a.coord)},
 	    }   
 	}
     }
@@ -842,7 +880,11 @@ impl Simulator {
 		    //eprintln!("Torp val co {:?}, vec {:?}", a.coord, sim_sim.board.get_torpedo_pos_from_coord(&a.coord));
 
 
-
+		    if sim_sim.torpedo_v < 3 {
+			//eprintln!("no torpedo {}", sim_sim.torpedo_v);
+			return None;
+		    }
+		    
 		    if sim_sim.play_c.dist(&a.coord) > 4 {
 			//first verif
 			//eprintln!("to long {:?}", a.coord);
@@ -857,10 +899,7 @@ impl Simulator {
 			return None;
 		    }
 
-		    if sim_sim.torpedo_v < 3 {
-			//eprintln!("no torpedo {}", sim_sim.torpedo_v);
-			return None;
-		    }
+
 		    eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
 		    sim_sim.torpedo_v = 0;
 		    if a.coord.dist(&sim_sim.adv_c) == 0 {
@@ -877,9 +916,7 @@ impl Simulator {
 			sim_sim.play_lost = 1;
 		    }
 
-		    if sim_sim.proba_coord < 0.7 && sim_sim.play_lost > 0 {
-			return None //do not allow to loose life if we are unsure of the position
-		    }
+
 		    
 		}
 		Action_type::SONAR => return None,
@@ -925,6 +962,16 @@ impl Simulator {
 	}
     }
 
+    fn eval_func(sim: &Simulator) -> f64 {
+	if sim.play_life as i32 - sim.play_lost as i32 <= 0  { //if we loose, bad action...
+	    return 0.0;
+	}
+
+	if sim.proba_coord < 0.5 && sim.play_lost > 0 {
+	    return 0.0 //do not allow to loose life if we are unsure of the position
+	}
+	return sim.adv_lost as f64 - sim.play_lost as f64;
+    }
     fn compute_best_sequence(&self) -> Option<(Vec::<Action>, Simulator)> {
 	
 	//let mut v_ret =  Vec::<Action>::new();
@@ -948,7 +995,7 @@ impl Simulator {
 	}
 
 
-	let mut max_op = 0;
+	let mut max_op = 0.0;
 	let mut ret_val:Option::<(Vec::<Action>, Simulator)> = None;
 
 
@@ -961,8 +1008,8 @@ impl Simulator {
 		match self.play_ac_l(v_try)
 		{
 		    Some(sim) => {
-			if (sim.adv_lost as i32 - sim.play_lost as i32)  > max_op {
-			    max_op = sim.adv_lost as i32 - sim.play_lost as i32;
+			if Simulator::eval_func(&sim)  > max_op {
+			    max_op = Simulator::eval_func(&sim);
 			    ret_val = Some((v_try.to_vec(), sim));
 			}
 		    }
@@ -984,8 +1031,8 @@ impl Simulator {
 		    match self.play_ac_l(v_try)
 		    {
 			Some(sim) => {
-			    if sim.adv_lost as i32 - sim.play_lost as i32  > max_op {
-				max_op = sim.adv_lost as i32 - sim.play_lost as i32;
+			    if Simulator::eval_func(&sim)   > max_op {
+				max_op = Simulator::eval_func(&sim);
 				ret_val = Some((v_try.to_vec(), sim));
 			    }
 			}
@@ -1005,8 +1052,8 @@ impl Simulator {
 			match self.play_ac_l(v_try)
 			{
 			    Some(sim) => {
-				if (sim.adv_lost as i32 - sim.play_lost as i32).abs()  > max_op {
-				    max_op = (sim.adv_lost as i32 - sim.play_lost as i32).abs();
+				if Simulator::eval_func(&sim)   > max_op {
+				    max_op = Simulator::eval_func(&sim) ;
 				    ret_val = Some((v_try.to_vec(), sim));
 				}
 			    }
