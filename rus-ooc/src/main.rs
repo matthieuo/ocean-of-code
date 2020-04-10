@@ -11,6 +11,8 @@ use std::str::FromStr;
 
 //extern crate rand;
 use rand::Rng;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 //use std::fmt;
 const MAX_X:u8 = 15;
 const MAX_Y:u8 = 15;
@@ -369,8 +371,14 @@ impl Board {
 	else  {
 	    vec_it = vec![Direction::N, Direction::W, Direction::E, Direction::S];
 	}
-	    
+	 
+   
 	for d in &vec_it{*/
+	let mut rng = thread_rng();
+	let mut dir_s = [Direction::N, Direction::S, Direction::W, Direction::E];
+	//println!("Unshuffled: {:?}", y);
+	dir_s.shuffle(&mut rng);
+	//println!("Shuffled:   {:?}", y);
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E]{
 	    match self.check_dir(cur_pos, d) {
 		Some(c_valid) => {
