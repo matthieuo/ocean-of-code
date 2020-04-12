@@ -6,6 +6,7 @@ use std::collections::LinkedList;
 use std::cmp::Reverse;
 use std::cmp;
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 //use itertools::Itertools;
 //use std::collections::VecDeque;
 
@@ -454,17 +455,30 @@ impl Board {
 
 
 // ------------------------- predictor ------------------
+
+#[derive(Debug)]
+struct PathElem {
+    freq: f64,
+    coords: Vec::<Coordinate>,
+    mines: Vec::<Coordinate>,
+}
+impl PathElem {
+    fn init(freq: f64, coords: &Vec::<Coordinate>,mines: &Vec::<Coordinate> ) -> PathElem{
+	return PathElem { freq:freq, coords:coords.to_vec(), mines:mines.to_vec()}
+    }
+}
 #[derive(Debug)]
 struct Path {
-    path_coords: Vec::<(f64, Vec::<Coordinate>)>,
-
+    //path_coords: Vec::<(f64, Vec::<Coordinate>)>,
+    path_coords: Vec::<PathElem>,
     board: Board,
     reduced:bool,
 }
 
+
 impl Path {
     fn new(board: Board) -> Path{
-	return Path { path_coords:Vec::<(f64, Vec::<Coordinate>)>::new(),board: board, reduced:false}
+	return Path { path_coords:Vec::<PathElem>::new(),board: board, reduced:false}
     }
 
     fn process_trigger(&mut self, co_t :Coordinate) {
@@ -475,7 +489,7 @@ impl Path {
 	    eprintln!("OK not reduced, we process trigger");
 	    let v_c = self.board.get_nsew_coord(&co_t);
 
-	    self.path_coords.retain(|(_, ve)| ve.iter().any(|val| v_c.contains(val)));
+	    self.path_coords.retain(|pel| pel.coords.iter().any(|val| v_c.contains(val)));
 	}
 	
     }
@@ -483,7 +497,7 @@ impl Path {
     fn process_torpedo(&mut self, co_t :Coordinate) {
 	eprintln!("Process torpedo");
 
-	self.path_coords.retain(|(_, ve)| {ve.last().unwrap().dist(&co_t) <= 4});
+	self.path_coords.retain(|pel| {pel.coords.last().unwrap().dist(&co_t) <= 4});
     }
 
     fn process_surface(&mut self, sector :u8) {
@@ -504,42 +518,46 @@ impl Path {
 	}
 
 	let l_g:&Board = &self.board;
-	self.path_coords.retain(|(_,ve)| {
+	self.path_coords.retain(|pel| {
 	    for x in rx..(rx + 5){
 		for y in ry..(ry + 5){
 		    if l_g.grid[x as usize][y as usize] == 10 {
 			continue; //Do not add the island
 		    }
-                    if ve.last().unwrap() == &(Coordinate {x:x, y:y}) {
+                    if pel.coords.last().unwrap() == &(Coordinate {x:x, y:y}) {
 			return true;
 		    }
 		}
 	    }
 	    return false;
 	});
-	//reset the paths
-	for e in &mut self.path_coords {
-	    *e = (e.0, vec![*e.1.last().unwrap()]);
+	
+	//reset the paths, we keep mines ????
+	for pel in &mut self.path_coords {
+	    pel.coords = vec![*pel.coords.last().unwrap()]
 	}
 	
 	    
     }
 
-    fn _reduce_search_space(v_coord :&Vec::<(f64,Vec::<Coordinate>)>) -> Vec::<(f64,Vec::<Coordinate>)> {
+    fn _reduce_search_space(v_coord :&Vec::<PathElem>) -> Vec::<PathElem> {
 	//ok reduce search space
-	let mut p_coords_reduced = Vec::<(f64,Vec::<Coordinate>)>::new();
+	let mut p_coords_reduced = Vec::<PathElem>::new();
 	
 	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
 	
-	for (freq, coord) in v_coord { 
-	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += *freq;
+	for pel in v_coord {
+	    let freq = pel.freq;
+	    let coord = &pel.coords;
+	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += freq;
 	}
-	//eprintln!("FREQ {:?}", frequency);
+	eprintln!("*********** REDUCED, MINES NOT TAKEN");
 	
 	//update the path
 	//self.path_coords.clear();
 	for (co,freq) in &frequency {
-	    p_coords_reduced.push((*freq,vec![**co]));
+	    //p_coords_reduced.push((*freq,vec![**co]));
+	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::<Coordinate>::new()});
 	}
 	p_coords_reduced
     }
@@ -547,26 +565,29 @@ impl Path {
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
 	let max_search:usize = 500;
-	let mut p_coords_l = Vec::<(f64,Vec::<Coordinate>)>::new();
+	let mut p_coords_l = Vec::<PathElem>::new();
 
 	if self.path_coords.len() > max_search {
 	    eprintln!("REDUCE size before : {}", self.path_coords.len());
 
 	    self.path_coords =  Path::_reduce_search_space(&self.path_coords);
 	    self.reduced = true;
+	   
 	    eprintln!("REDUCE size after : {}", self.path_coords.len());
+	    panic!("REDUCED should be avoided");
 	}
 	
-	for (freq,v) in self.path_coords.iter() {
+	for pel in &self.path_coords {
 	    //add new possible coord for each paths
 	    //adv can make a 0 move
 
-	    p_coords_l.push((*freq, v.to_vec()));
+	    //p_coords_l.push((*freq, v.to_vec()));
+	    p_coords_l.push(PathElem {freq:pel.freq, coords:pel.coords.to_vec(), mines:pel.mines.to_vec()});
 	   
 	    
 	    for d in [Direction::N, Direction::S, Direction::W, Direction::E].iter() {
 		
-		let mut cur_path:Vec::<Coordinate> = v.to_vec();
+		let cur_path:&mut Vec::<Coordinate> = &mut pel.coords.to_vec();
 		let mut cur_pos:Coordinate = *cur_path.last().unwrap();
 		
 		for i in 1..5 {
@@ -579,11 +600,9 @@ impl Path {
 				cur_path.push(c_valid);
 
 				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
-				let new_freq:f64 = (*freq)*(((10-2*i) as f64)/10.0);
+				let new_freq:f64 = (pel.freq)*(((10-2*i) as f64)/10.0);
 				//let new_freq:f64 = *freq;
-				p_coords_l.push((new_freq,cur_path.to_vec())); //explicit copy
-
-				
+				p_coords_l.push(PathElem {freq:new_freq, coords:cur_path.to_vec(), mines:pel.mines.to_vec()}); //explicit copy
 				cur_pos = c_valid;
 
 			    }
@@ -612,22 +631,22 @@ impl Path {
 		    if self.board.grid[x as usize][y as usize] == 10 {
 			continue; //Do not add the island
 		    }
-		    self.path_coords.push((PATH_INIT,vec![Coordinate {x:x, y:y}]));
+		    self.path_coords.push(PathElem {freq:PATH_INIT, coords:vec![Coordinate {x:x, y:y}], mines:Vec::<Coordinate>::new()});
 		}
 	    }
 	}
 	
-	for (_,p) in self.path_coords.iter_mut() {
-	    match self.board.check_dir(p.last().unwrap(), &d) {
+	for pel in self.path_coords.iter_mut() {
+	    match self.board.check_dir(pel.coords.last().unwrap(), &d) {
 		Some(c_valid) => {
-		    p.push(c_valid);
+		    pel.coords.push(c_valid);
 		}
 		
-		None    => p.clear(), //impossible we clear the path
+		None    => pel.coords.clear(), //impossible we clear the path
 	    }
 	}
 	//remove all element empty
-	self.path_coords.retain(|(_, ve)| !ve.is_empty());
+	self.path_coords.retain(|pel| !pel.coords.is_empty());
     }
 
 
@@ -646,28 +665,28 @@ impl Path {
     }
 
     
-    fn comp_variance(v_c:&Vec::<(f64,Vec::<Coordinate>)>, max_freq:f64) -> (f64,f64) {
+    fn comp_variance(v_c:&Vec::<PathElem>, max_freq:f64) -> (f64,f64) {
 	let mut xm = -1.0;
 	let mut ym = -1.0;
 	
 	let mut tot:f64 = 0.0;
 
 	//comput mean
-	for (freq, el_v) in v_c {
-	    if *freq < max_freq {
+	for pel in v_c {
+	    if pel.freq < max_freq {
 		continue;
 	    }
-	    let el = el_v.last().unwrap();
+	    let el = pel.coords.last().unwrap();
 	    
 	    if xm < 0.0 {
-		xm = *freq*el.x as f64;
-		ym = *freq*el.y as f64;
-		tot += *freq;
+		xm = pel.freq*el.x as f64;
+		ym = pel.freq*el.y as f64;
+		tot += pel.freq;
 	    }
 	    else {
-		xm += *freq*el.x as f64;
-		ym += *freq*el.y as f64;
-		tot += *freq;
+		xm += pel.freq*el.x as f64;
+		ym += pel.freq*el.y as f64;
+		tot += pel.freq;
 	    }
 	    
 	}
@@ -679,11 +698,11 @@ impl Path {
 	let mut x_v:f64 = 0.0;
 	let mut y_v:f64 = 0.0;
 	
-	for (freq, el_v) in v_c {
-	    let el = el_v.last().unwrap();
+	for pel in v_c {
+	    let el = pel.coords.last().unwrap();
 
-	    x_v += (*freq as f64)*(el.x as f64 - xm).powi(2);
-	    y_v += (*freq as f64)*(el.y as f64 - ym).powi(2);
+	    x_v += (pel.freq as f64)*(el.x as f64 - xm).powi(2);
+	    y_v += (pel.freq as f64)*(el.y as f64 - ym).powi(2);
 	}
 
 	x_v /= tot as f64;
@@ -693,34 +712,11 @@ impl Path {
     }
 
 
-    //arg will be sorted !!
-   /* fn sorted_top_k(v:&mut Vec::<(f64,Vec::<Coordinate>)>, k:usize) -> Option<Vec::<f64>> {
-	v.sort_unstable_by(|(a,_), (b,_)| b.partial_cmp(a).unwrap()); //reverse sort
-	
-        if v.len() <= k {
-	    None
-        } else {
-            let mut result = vec![0.0; k];
-	    result[0] = v[0].0;
-	    let mut cur_idx = 0;
-	    for (e,_) in v.iter().skip(1) {
-		if *e != result[cur_idx] {
-		    cur_idx +=1;
-		    result[cur_idx] = *e;
-		    if cur_idx == k-1 {
-			break;
-		    }
-		}
-	    }
-	    Some(result)
-        }
-    
-    }*/
 
     fn get_possible_pos(&self) ->  (usize, Coordinate, (f64, f64), f64, Coordinate) {
 		
 	let mut reduced_v = Path::_reduce_search_space(&self.path_coords);
-	reduced_v.sort_unstable_by(|(a,_), (b,_)| b.partial_cmp(a).unwrap()); //reverse sort
+	reduced_v.sort_unstable_by(|pela, pelb| pelb.freq.partial_cmp(&pela.freq).unwrap()); //reverse sort
 	
 	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", self.path_coords.len());
@@ -729,7 +725,7 @@ impl Path {
 	//let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
 
 
-	let max_freq:f64 = reduced_v[cmp::min(reduced_v.len()-1, reduced_v.len()-1) as usize].0;
+	let max_freq:f64 = reduced_v[cmp::min(reduced_v.len()-1, reduced_v.len()-1) as usize].freq;
 	eprintln!("Max k-{} max_freq : {}", cmp::min(4, reduced_v.len()-1), max_freq);
 	
 	
@@ -737,21 +733,21 @@ impl Path {
 	let mut ym:f64 = -1.0;
 
 	let mut tot:f64 = 0.0;
-	for (freq, el_v) in &reduced_v {
-	    if *freq < max_freq {
+	for pel in &reduced_v {
+	    if pel.freq < max_freq {
 		continue;
 	    }
-	    let el = el_v.last().unwrap();
+	    let el = pel.coords.last().unwrap();
 	    
 	    if xm < 0.0 {
-		xm = *freq*el.x as f64;
-		ym = *freq*el.y as f64;
-		tot += *freq;
+		xm = pel.freq*el.x as f64;
+		ym = pel.freq*el.y as f64;
+		tot += pel.freq;
 	    }
 	    else {
-		xm += *freq*el.x as f64;
-		ym += *freq*el.y as f64;
-		tot += *freq;
+		xm += pel.freq*el.x as f64;
+		ym += pel.freq*el.y as f64;
+		tot += pel.freq;
 	    }
 	    
 	}
@@ -765,13 +761,13 @@ impl Path {
 	eprintln!("round {:?}", round_coord);
 	if reduced_v.len() < 40
 	{
-	    for (f,v_p) in &reduced_v
+	    for pel in &reduced_v
 	    {
-		eprintln!("freq : {}, prob {},  val : {:?}",f, f/tot, v_p.last().unwrap());
+		eprintln!("freq : {}, prob {},  val : {:?}",pel.freq, pel.freq/tot, pel.coords.last().unwrap());
 	    }
 	}
 
-	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v, max_freq), reduced_v[0].0/tot, *reduced_v[0].1.last().unwrap())
+	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v, max_freq), reduced_v[0].freq/tot, *reduced_v[0].coords.last().unwrap())
     }
     fn process_previous_actions(&mut self, va_issued:&Vec<Action>, va_opp_issued:&Vec<Action>, diff_life_arg:u8) {
 
@@ -805,17 +801,17 @@ impl Path {
 	    match  diff_life {
 		1 => {
 		    eprintln!("torp touch 1! coord {:?}", coord_torpedo);
-		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) == 1});
+		    self.path_coords.retain(|pel| {pel.coords.last().unwrap().l2_dist(&coord_torpedo) == 1});
 		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path_coords) );
 		},
 		2 => {
 		    eprintln!("torp touch 2! coord {:?}", coord_torpedo);
-		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().dist(&coord_torpedo) == 0});
+		    self.path_coords.retain(|pel| {pel.coords.last().unwrap().dist(&coord_torpedo) == 0});
 		    eprintln!("re {:?}", Path::_reduce_search_space(&self.path_coords) );
 		},
 		0 => {
 		    eprintln!("torp NO touch  coord {:?}", coord_torpedo);
-		    self.path_coords.retain(|(_freq, ve)| {ve.last().unwrap().l2_dist(&coord_torpedo) > 1});
+		    self.path_coords.retain(|pel| {pel.coords.last().unwrap().l2_dist(&coord_torpedo) > 1});
 		},
 		_ => panic!("diff life != 1,2,0 val : {}",diff_life),
 		    
@@ -1276,11 +1272,18 @@ fn main() {
         // Write an action using println!("message...");
         // To debug: eprintln!("Debug message...");
 
+	let start = Instant::now();
+    
+	
+	
 	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8, &Action::parse_raw(&opponent_orders));
 	predictor.path.process_actions(&Action::parse_raw(&opponent_orders));
 	//predictor.path.get_possible_pos();
 	let v_acts = predictor.get_actions_to_play();
 	predictor.my_path.process_actions(&v_acts);
+
+	let duration = start.elapsed();
+	eprintln!("Total duration : {:?}",duration);
 	println!("{}",&Action::repr_action_v(&v_acts));
 
     }
