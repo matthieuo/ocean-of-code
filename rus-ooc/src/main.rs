@@ -462,11 +462,7 @@ struct PathElem {
     coords: Vec::<Coordinate>,
     mines: Vec::<Coordinate>,
 }
-impl PathElem {
-    fn init(freq: f64, coords: &Vec::<Coordinate>,mines: &Vec::<Coordinate> ) -> PathElem{
-	return PathElem { freq:freq, coords:coords.to_vec(), mines:mines.to_vec()}
-    }
-}
+
 #[derive(Debug)]
 struct Path {
     //path_coords: Vec::<(f64, Vec::<Coordinate>)>,
@@ -483,16 +479,36 @@ impl Path {
 
     fn process_trigger(&mut self, co_t :Coordinate) {
 	eprintln!("Process trigger, {:?}",co_t);
-	//remove  all paths which not contain co_t
+	//remove  all paths which not contain co_t in mines list
 
 	if !self.reduced {
 	    eprintln!("OK not reduced, we process trigger");
-	    let v_c = self.board.get_nsew_coord(&co_t);
+	    self.path_coords.retain(|pel| pel.mines.contains(&co_t));
 
-	    self.path_coords.retain(|pel| pel.coords.iter().any(|val| v_c.contains(val)));
+	    //remove the mine triggered
+	    for pel in self.path_coords.iter_mut() {
+		pel.mines.retain(|m| m != &co_t);
+	    }
 	}
 	
     }
+
+    fn process_mine(&mut self) {
+	eprintln!("Process MINE");
+	//add a mines to all potential path
+
+	if !self.reduced {
+	    eprintln!("OK not reduced, we process mine");
+	    for pel in self.path_coords.iter_mut(){
+		//eprintln!("Ok we add {:?}", pel.coords.last().unwrap());
+		//eprintln!("Ok we add {:?}", self.board.get_nsew_coord(pel.coords.last().unwrap()));
+		pel.mines.append(&mut self.board.get_nsew_coord(pel.coords.last().unwrap()));
+	    }
+
+	}
+	
+    }
+    
 	
     fn process_torpedo(&mut self, co_t :Coordinate) {
 	eprintln!("Process torpedo");
@@ -540,6 +556,28 @@ impl Path {
 	    
     }
 
+    //reduce possible mines to freq to coordinate
+    fn _reduce_mines(v :&Vec::<PathElem>) -> Vec::<(f64, Coordinate)> {
+
+	let mut p_mines_reduced = Vec::<(f64,Coordinate)>::new();
+	
+	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
+	
+	for pel in v {
+	    for m in &pel.mines {
+		*frequency.entry(m).or_insert(0.0) += pel.freq;
+	    }
+
+	}
+	
+	for (co_m,freq) in &frequency {
+	    p_mines_reduced.push((*freq, **co_m));
+	}
+	p_mines_reduced
+	
+    }
+
+    
     fn _reduce_search_space(v_coord :&Vec::<PathElem>) -> Vec::<PathElem> {
 	//ok reduce search space
 	let mut p_coords_reduced = Vec::<PathElem>::new();
@@ -556,7 +594,6 @@ impl Path {
 	//update the path
 	//self.path_coords.clear();
 	for (co,freq) in &frequency {
-	    //p_coords_reduced.push((*freq,vec![**co]));
 	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::<Coordinate>::new()});
 	}
 	p_coords_reduced
@@ -658,7 +695,7 @@ impl Path {
 		Action_type::TORPEDO =>  self.process_torpedo(a.coord),
 		Action_type::SONAR => {},
 		Action_type::SILENCE => self.process_silence(),
-		Action_type::MINE => {},
+		Action_type::MINE => self.process_mine(),
 		Action_type::TRIGGER => {self.process_trigger(a.coord)},
 	    }   
 	}
@@ -717,6 +754,11 @@ impl Path {
 		
 	let mut reduced_v = Path::_reduce_search_space(&self.path_coords);
 	reduced_v.sort_unstable_by(|pela, pelb| pelb.freq.partial_cmp(&pela.freq).unwrap()); //reverse sort
+
+	
+	let mut reduced_mines = Path::_reduce_mines(&self.path_coords);
+	reduced_mines.sort_unstable_by(|(fa,_), (fb,_)| fb.partial_cmp(fa).unwrap()); //reverse sort
+
 	
 	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", self.path_coords.len());
@@ -757,6 +799,12 @@ impl Path {
 
 	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
 
+	eprintln!("Possible mines : {}",reduced_mines.len());
+	for (f,c) in reduced_mines {
+		      eprintln!("Freq {}, coo : {:?}",f,c)
+	    
+	}
+	    
 	
 	eprintln!("round {:?}", round_coord);
 	if reduced_v.len() < 40
