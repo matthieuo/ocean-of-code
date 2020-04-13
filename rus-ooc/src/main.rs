@@ -120,8 +120,8 @@ impl Action {
 		Action_type::TORPEDO => out = format!("{}TORPEDO {} {}", out, a.coord.x, a.coord.y),
 		Action_type::SONAR => out = format!("{}SONAR {}", out, a.sector),
 		Action_type::SILENCE => out = format!("{}SILENCE {:?} {}", out, a.dir, a.sector),
-		Action_type::MINE => panic!("no mines"),
-		Action_type::TRIGGER => panic!("no trig"),
+		Action_type::MINE => out = format!("{}MINE {:?}", out, a.dir),
+		Action_type::TRIGGER => out = format!("{}TRIGGER {} {}", out, a.coord.x, a.coord.y),
 	    }
 	}
 	out
@@ -800,10 +800,10 @@ impl Path {
 	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
 
 	eprintln!("Possible mines : {}",reduced_mines.len());
-	for (f,c) in reduced_mines {
+	/*for (f,c) in reduced_mines {
 		      eprintln!("Freq {}, coo : {:?}",f,c)
 	    
-	}
+	}*/
 	    
 	
 	eprintln!("round {:?}", round_coord);
@@ -1138,8 +1138,9 @@ struct Predictor {
     torpedo :u8,
     silence :u8,
     sonar :u8,
-    mine: u8,
+    mines: u8,
     actions_issued: Vec::<Action>,
+    list_mines: Vec::<Coordinate>,
 }
 
 impl  Predictor  {
@@ -1154,7 +1155,8 @@ impl  Predictor  {
 			  torpedo:0,
 			  silence:0,
 			  sonar:0,
-			  mine:0};
+			  mines:0,
+			  list_mines:Vec::<Coordinate>::new()};
     }
 
     //to do dont print!
@@ -1202,7 +1204,14 @@ impl  Predictor  {
 		    },
 		    None => eprintln!("FFFFFF NOT"),
 		}
-
+		
+		if prob > 0.9 {
+		    for c in &self.list_mines {
+			if c.l2_dist(&max_prob_coord) <= 1 {
+			    v_act.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
+			}
+		    }
+		}
 
 	    }
 	    
@@ -1210,6 +1219,14 @@ impl  Predictor  {
 	
 	if !dir.is_empty() {
 	    let next_dir = *dir.front().unwrap();
+
+	    if self.mines == 3 {
+		v_act.push(Action { ac: Action_type::MINE, dir:next_dir, ..Default::default() });
+		self.list_mines.push(self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
+		eprintln!("Mine added {:?}", self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
+		self.mines = 0;
+	    }
+	    
 	    if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
 		eprintln!("He found me, silence !!");
 		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
@@ -1223,12 +1240,20 @@ impl  Predictor  {
 		    self.torpedo = cmp::min(self.torpedo,3);
 		
 	    }
-	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE){
-		    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::SILENCE, ..Default::default() });
+	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE) && self.silence < 6 {
+		v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::SILENCE, ..Default::default() });
 		
-		    self.silence += 1;
-		    self.silence = cmp::min(self.silence,6);
+		self.silence += 1;
+		self.silence = cmp::min(self.silence,6);
 	    }
+	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE) && self.mines < 3 {
+		v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::MINE, ..Default::default() });
+		
+		self.mines += 1;
+		self.mines = cmp::min(self.mines,3);
+		
+	    }
+
 	}
 	if v_act.is_empty() { //ok no action so surface
 	    self.play_board.rem_visited();
