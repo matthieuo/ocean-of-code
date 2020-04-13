@@ -601,7 +601,7 @@ impl Path {
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
-	let max_search:usize = 500;
+	let max_search:usize = 7000;
 	let mut p_coords_l = Vec::<PathElem>::new();
 
 	if self.path_coords.len() > max_search {
@@ -1206,11 +1206,22 @@ impl  Predictor  {
 		}
 		
 		if prob > 0.9 {
-		    for c in &self.list_mines {
+
+		    
+		    self.list_mines.retain(|mc| {
+			if mc.l2_dist(&max_prob_coord) <= 1 {
+			    v_act.push(Action { ac: Action_type::TRIGGER, coord:*mc, ..Default::default() });
+			    false
+			} else {
+			    true
+			}
+		    });
+			
+		    /*for c in &self.list_mines {
 			if c.l2_dist(&max_prob_coord) <= 1 {
 			    v_act.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
 			}
-		    }
+		    }*/
 		}
 
 	    }
