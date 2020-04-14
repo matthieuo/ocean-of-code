@@ -834,8 +834,30 @@ impl Simulator {
 						  adv_life:adv_life,
 						  play_life:play_life}}
 
+
+
+
+    /*fn get_possible_actions(&self) -> Vec::<Action> {
+	let mut ret_acts = Vec::<Action>::new();
+
+	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
+	    
+	    for i in 1..5 {
+		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
+	    }
+	    
+	}
+
+	ret_acts
+    }*/
+
+    
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<Simulator> {
 	let mut sim_sim = *self;
+
 	for a in va {
 	    match a.ac {
 		Action_type::MOVE => {
@@ -846,9 +868,12 @@ impl Simulator {
 			    if a.ac_load == Action_type::TORPEDO {
 				sim_sim.torpedo_v = cmp::min(sim_sim.torpedo_v+1, 3);
 			    }
-			    else {
+			    else if a.ac_load == Action_type::SILENCE {
 				sim_sim.silence_v = cmp::min(sim_sim.silence_v+1, 6);
-			    }		    
+			    }
+			    else {
+				sim_sim.mine_v = cmp::min(sim_sim.mine_v+1, 3);
+			    }	
 			},
 			None    => return None,
 		    }
@@ -880,7 +905,7 @@ impl Simulator {
 		    }
 
 
-		    eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
+		    //eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
 		    sim_sim.torpedo_v = 0;
 		    if a.coord.dist(&sim_sim.adv_c) == 0 {
 			sim_sim.adv_lost = 2;
@@ -952,18 +977,20 @@ impl Simulator {
 	}
 	return sim.adv_lost as f64 - sim.play_lost as f64;
     }
-    fn compute_best_sequence(&self) -> Option<(Vec::<Action>, Simulator)> {
+    fn compute_best_sequence(&self, m_play:&MinesMng, m_adv:&MinesMng) -> Option<(Vec::<Action>, Simulator)> {
 	
 	//let mut v_ret =  Vec::<Action>::new();
 	
 	let mut v_move = Vec::<Action>::new();
 	let mut v_sil =  Vec::<Action>::new();
 	let mut v_torp =  Vec::<Action>::new();
-
+	
+	let mut v_trig =  Vec::<Action>::new();
 	
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
 	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
 	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
+	    //v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
 	    
 	    for i in 1..5 {
 		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
@@ -974,6 +1001,9 @@ impl Simulator {
 	    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
 	}
 
+	for c in  &m_play.list_mines {
+	    v_trig.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
+	}
 
 	let mut max_op = 0.0;
 	let mut ret_val:Option::<(Vec::<Action>, Simulator)> = None;
@@ -981,27 +1011,24 @@ impl Simulator {
 
 
 
-	//if self.proba_coord <= 0.2 && self.silence_v == 6 {
-//	    eprintln!("Proba <=0.2, only torpedo if assez silence");
-	    for a in &v_torp {
-		let v_try = &vec![*a];
-		match self.play_ac_l(v_try)
-		{
-		    Some(sim) => {
-			if Simulator::eval_func(&sim)  > max_op {
-			    max_op = Simulator::eval_func(&sim);
-			    ret_val = Some((v_try.to_vec(), sim));
-			}
+	for a in &v_torp {
+	    let v_try = &vec![*a];
+	    match self.play_ac_l(v_try)
+	    {
+		Some(sim) => {
+		    if Simulator::eval_func(&sim)  > max_op {
+			max_op = Simulator::eval_func(&sim);
+			ret_val = Some((v_try.to_vec(), sim));
 		    }
-		    None => continue,
 		}
+		None => continue,
 	    }
-
-
+	}
 	if self.proba_coord <= 0.2 && (self.silence_v < 6 || self.mine_v < 3){
 	    //proba is to low, need to create silence
 	    return None
 	}
+	
 	if self.proba_coord <= 0.2 && self.silence_v == 6 {
 	    eprintln!("Proba <=0.2, only torpedo if assez silence, early return since proba low");
 	    return ret_val
@@ -1252,7 +1279,7 @@ impl  Predictor  {
 					   *self.my_life.last().unwrap(),
 					   *self.op_life.last().unwrap());
 			
-		match simul.compute_best_sequence() {
+		match simul.compute_best_sequence(&self.my_path.mines_m, &self.path.mines_m) {
 		    Some((v,sim)) => {
 			eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
 			v_act = v;
