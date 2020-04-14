@@ -837,23 +837,117 @@ impl Simulator {
 
 
 
-    /*fn get_possible_actions(&self) -> Vec::<Action> {
-	let mut ret_acts = Vec::<Action>::new();
-
+    fn get_possible_actions(&self) -> Vec::<Vec::<Action>> {
+	let mut ret_acts = Vec::<Vec::<Action>>::new();
+	let mut v_move = Vec::<Action>::new();
+	let mut v_sil =  Vec::<Action>::new();
+	let mut v_torp =  Vec::<Action>::new();
+	
+	let mut v_trig =  Vec::<Action>::new();
+	
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
 	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
 	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
-	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
+	    //v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
 	    
 	    for i in 1..5 {
 		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
 	    }
-	    
 	}
 
-	ret_acts
-    }*/
+/*	if !adv {
+	    //adv sim doesnt handle mine
+	for c in  &m_play.list_mines {
+	    v_trig.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
+	}
+	}
+	
+	if adv { //if the player is adv
+	    for a in &self.board.get_diag_coord(&self.play_c) {
+		v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
+	    }
+	}
+	else {
+	    for a in &self.board.get_diag_coord(&self.adv_c) {
+		v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
+	    }
+	}*/
 
+	ret_acts.push(v_move);
+	ret_acts.push(v_sil);
+/*	ret_acts.push(v_torp);
+	ret_acts.push(v_trig);*/
+	
+    
+	ret_acts
+    }
+
+    fn simule_random(&self, mymines:&MinesMng, adv:bool) { // -> Option<(Vec::<Action>, Simulator)> {
+
+	let mut vec_act = Vec::<Action>::new();
+
+	let mut v_torp =  Vec::<Action>::new();
+	
+	let mut v_trig =  Vec::<Action>::new();
+	
+	let max_duration = Duration::from_millis(30);
+	let start = Instant::now();
+	let mut sim_exec = 0;
+	let mut sim_none = 0;
+
+	let mut poss_actions = self.get_possible_actions();
+	
+	loop {
+	    v_trig.clear();
+	    v_torp.clear();
+	    
+	    if !adv {
+		//adv sim doesnt handle mine
+		for c in  &mymines.list_mines {
+		    v_trig.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
+		}
+	    }
+	
+	    if adv { //if the player is adv
+		for a in &self.board.get_diag_coord(&self.play_c) {
+		    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
+		}
+	    }
+	    else {
+		for a in &self.board.get_diag_coord(&self.adv_c) {
+		    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
+		}
+	    }
+
+	    poss_actions.push(v_torp.to_vec());
+	    poss_actions.push(v_trig.to_vec());
+	    
+	    vec_act.clear();
+
+	    for va in &poss_actions {
+		if !va.is_empty(){
+		    vec_act.push(*va.choose(&mut rand::thread_rng()).unwrap());
+		}
+	    }
+sim_exec += 1;
+	    //eprintln!("VEC {:?}",vec_act);
+	  /*  match self.play_ac_l(&vec_act)
+	    {
+		Some(sim) => {
+		    sim_exec += 1;
+		}
+		None => {sim_none += 1},
+	    }*/
+
+	    let duration = start.elapsed();
+	    if duration > max_duration {
+		eprintln!("Exit loop, time : {:?}",duration);
+		break;
+	    }
+	}
+	eprintln!("Number of sims : {} {}",sim_exec, sim_none);
+//	None
+    }
     
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<Simulator> {
 	let mut sim_sim = *self;
@@ -977,6 +1071,80 @@ impl Simulator {
 	}
 	return sim.adv_lost as f64 - sim.play_lost as f64;
     }
+
+    fn eval_func_move(&self, m_path:&Path) -> f64 {
+
+	let mut grid: [[bool; MAX_X as usize]; MAX_Y as usize] = [[false; MAX_X as usize]; MAX_Y as usize];
+	let po = self.board._rec_num_pos(&self.play_c, &mut grid);
+
+	return po as f64;
+    }
+
+    fn compute_best_move_sequence(&self, m_path:&Path) -> Option<(Vec::<Action>, Simulator)> {
+	let mut v_move = Vec::<Action>::new();
+	let mut v_sil =  Vec::<Action>::new();
+	let mut ret_val_std:Option::<(Vec::<Action>, Simulator)> = None;
+
+	let mut max_op = 0.0;
+	
+	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
+	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
+	    
+	    for i in 1..5 {
+		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
+	    }
+	}
+	
+	for a in &v_move{
+	    let v_try = &vec![*a];
+	    match self.play_ac_l(v_try)
+	    {
+		Some(sim) => {
+		    if sim.eval_func_move(m_path)  > max_op {
+			max_op = sim.eval_func_move(m_path);
+			ret_val_std = Some((v_try.to_vec(), sim));
+		    }
+		}
+		None => continue,
+	    }
+	}
+
+	for am in &v_move{
+	    for a in &v_sil{
+		let v_try = &vec![*am,*a];
+		match self.play_ac_l(v_try)
+		{
+		    Some(sim) => {
+			if sim.eval_func_move(m_path)  > max_op {
+			    max_op = sim.eval_func_move(m_path);
+			    ret_val_std = Some((v_try.to_vec(), sim));
+			}
+		    }
+		    None => continue,
+	    }
+	    }
+	}
+	
+	for a in &v_sil{
+	    let v_try = &vec![*a];
+	    match self.play_ac_l(v_try)
+	    {
+		Some(sim) => {
+		    if sim.eval_func_move(m_path)  > max_op {
+			max_op = sim.eval_func_move(m_path);
+			ret_val_std = Some((v_try.to_vec(), sim));
+		    }
+		}
+		None => continue,
+	    }
+	}
+
+	ret_val_std
+    }
+
+    
     fn compute_best_sequence(&self, m_play:&MinesMng, m_adv:&MinesMng) -> Option<(Vec::<Action>, Simulator)> {
 	
 	//let mut v_ret =  Vec::<Action>::new();
@@ -1011,6 +1179,7 @@ impl Simulator {
 
 
 
+
 	for a in &v_torp {
 	    let v_try = &vec![*a];
 	    match self.play_ac_l(v_try)
@@ -1026,7 +1195,7 @@ impl Simulator {
 	}
 	if self.proba_coord <= 0.2 && (self.silence_v < 6 || self.mine_v < 3){
 	    //proba is to low, need to create silence
-	    return None
+	    return None;
 	}
 	
 	if self.proba_coord <= 0.2 && self.silence_v == 6 {
@@ -1133,9 +1302,9 @@ impl  MinesMng  {
 
 	eprintln!("Mines situations");
 	eprintln!("Num poss mines {}", frequency.len());
-	for (co_m,freq) in &frequency {
+	/*for (co_m,freq) in &frequency {
 	    eprintln!("Mines : {:?} freq : {}", co_m, freq);
-	}
+	}*/
     }
 
     
@@ -1248,14 +1417,13 @@ impl  Predictor  {
     fn get_actions_to_play(&mut self) -> Vec::<Action> {
 	eprintln!("Torpedo val {}",self.torpedo);
 	let mut v_act = Vec::<Action>::new();
+	let mut v_act_move = Vec::<Action>::new();
 	//let e = self.play_board.num_avail_pos(&self.cur_co);
 
 	    
 	    let mut proba_my = 0.0;
 	    
 	    if !self.my_path.path_coords.is_empty() && !self.path.path_coords.is_empty() {
-
-
 		eprintln!("*** MY possible pos");
 		let (my_n_pos_l, _,_, proba_my_loc, _) = self.get_possible_pos(&self.my_path);
 
@@ -1278,7 +1446,11 @@ impl  Predictor  {
 					   prob,
 					   *self.my_life.last().unwrap(),
 					   *self.op_life.last().unwrap());
-			
+
+		//simul.simule_random(&self.my_path.mines_m, false);
+//		eprintln!("NB : {}", simul.get_possible_actions(false).len());
+
+		let mut next_sim = simul;
 		match simul.compute_best_sequence(&self.my_path.mines_m, &self.path.mines_m) {
 		    Some((v,sim)) => {
 			eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
@@ -1287,30 +1459,36 @@ impl  Predictor  {
 			self.silence = sim.silence_v;
 			self.cur_co = sim.play_c;
 			self.play_board = sim.board; //update board, should be ok...
+			next_sim = sim;
 		    },
 		    None => eprintln!("FFFFFF NOT"),
 		}
+
+		match next_sim.compute_best_move_sequence(&self.my_path) {
+		    Some((v,sim)) => {
+			eprintln!("FFFmove {:?} {} {}",v, sim.adv_lost,sim.play_lost);
+			v_act_move = v;
+			self.torpedo = sim.torpedo_v;
+			self.silence = sim.silence_v;
+			self.cur_co = sim.play_c;
+			self.play_board = sim.board; //update board, should be ok...
+		    },
+		    None => eprintln!("FFmove NOT"),
+		}
+		
 		
 		if prob > 0.9 {
-
 		    match self.my_path.mines_m.get_remove_d1(&max_prob_coord) {
 			Some(c) => v_act.push(Action { ac: Action_type::TRIGGER, coord:c, ..Default::default() }),
 			None => {} ,
 		    }
-
-			
-		    /*for c in &self.list_mines {
-			if c.l2_dist(&max_prob_coord) <= 1 {
-			    v_act.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
-			}
-		    }*/
 		}
-
 	    }
 	    
 	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
-	
-	if !dir.is_empty() {
+
+	v_act.extend(&v_act_move);
+	if v_act_move.is_empty() && !dir.is_empty(){
 	    let next_dir = *dir.front().unwrap();
 
 	    if self.mines == 3 {
