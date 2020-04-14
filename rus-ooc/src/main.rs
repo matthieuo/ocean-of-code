@@ -469,14 +469,22 @@ struct Path {
     path_coords: Vec::<PathElem>,
     board: Board,
     reduced:bool,
+    mines_m: MinesMng,
 }
 
 
 impl Path {
     fn new(board: Board) -> Path{
-	return Path { path_coords:Vec::<PathElem>::new(),board: board, reduced:false}
+	return Path { path_coords:Vec::<PathElem>::new(),board: board, reduced:false, mines_m:MinesMng::new()}
     }
 
+    
+
+    fn update_mines_infos(&mut self) {
+	self.mines_m.update_mines_prob(&self.path_coords);
+    }
+
+    
     fn process_trigger(&mut self, co_t :Coordinate) {
 	eprintln!("Process trigger, {:?}",co_t);
 	//remove  all paths which not contain co_t in mines list
@@ -556,26 +564,7 @@ impl Path {
 	    
     }
 
-    //reduce possible mines to freq to coordinate
-    fn _reduce_mines(v :&Vec::<PathElem>) -> Vec::<(f64, Coordinate)> {
-
-	let mut p_mines_reduced = Vec::<(f64,Coordinate)>::new();
-	
-	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
-	
-	for pel in v {
-	    for m in &pel.mines {
-		*frequency.entry(m).or_insert(0.0) += pel.freq;
-	    }
-
-	}
-	
-	for (co_m,freq) in &frequency {
-	    p_mines_reduced.push((*freq, **co_m));
-	}
-	p_mines_reduced
-	
-    }
+  
 
     
     fn _reduce_search_space(v_coord :&Vec::<PathElem>) -> Vec::<PathElem> {
@@ -589,7 +578,7 @@ impl Path {
 	    let coord = &pel.coords;
 	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += freq;
 	}
-	eprintln!("*********** REDUCED, MINES NOT TAKEN");
+	//eprintln!("*********** REDUCED, MINES NOT TAKEN");
 	
 	//update the path
 	//self.path_coords.clear();
@@ -601,7 +590,7 @@ impl Path {
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
-	let max_search:usize = 7000;
+	let max_search:usize = 5000;
 	let mut p_coords_l = Vec::<PathElem>::new();
 
 	if self.path_coords.len() > max_search {
@@ -747,76 +736,6 @@ impl Path {
 
 	(x_v.sqrt(), y_v.sqrt())
     }
-
-
-
-    fn get_possible_pos(&self) ->  (usize, Coordinate, (f64, f64), f64, Coordinate) {
-		
-	let mut reduced_v = Path::_reduce_search_space(&self.path_coords);
-	reduced_v.sort_unstable_by(|pela, pelb| pelb.freq.partial_cmp(&pela.freq).unwrap()); //reverse sort
-
-	
-	let mut reduced_mines = Path::_reduce_mines(&self.path_coords);
-	reduced_mines.sort_unstable_by(|(fa,_), (fb,_)| fb.partial_cmp(fa).unwrap()); //reverse sort
-
-	
-	eprintln!("Num possible coord {}", reduced_v.len());
-	eprintln!("Num possible path {}", self.path_coords.len());
-
-	//try to keep only the maximum confidences
-	//let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
-
-
-	let max_freq:f64 = reduced_v[cmp::min(reduced_v.len()-1, reduced_v.len()-1) as usize].freq;
-	eprintln!("Max k-{} max_freq : {}", cmp::min(4, reduced_v.len()-1), max_freq);
-	
-	
-	let mut xm:f64 = -1.0;
-	let mut ym:f64 = -1.0;
-
-	let mut tot:f64 = 0.0;
-	for pel in &reduced_v {
-	    if pel.freq < max_freq {
-		continue;
-	    }
-	    let el = pel.coords.last().unwrap();
-	    
-	    if xm < 0.0 {
-		xm = pel.freq*el.x as f64;
-		ym = pel.freq*el.y as f64;
-		tot += pel.freq;
-	    }
-	    else {
-		xm += pel.freq*el.x as f64;
-		ym += pel.freq*el.y as f64;
-		tot += pel.freq;
-	    }
-	    
-	}
-
-	xm /= tot;
-	ym /= tot;
-
-	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
-
-	eprintln!("Possible mines : {}",reduced_mines.len());
-	/*for (f,c) in reduced_mines {
-		      eprintln!("Freq {}, coo : {:?}",f,c)
-	    
-	}*/
-	    
-	
-	eprintln!("round {:?}", round_coord);
-	if reduced_v.len() < 40
-	{
-	    for pel in &reduced_v
-	    {
-		eprintln!("freq : {}, prob {},  val : {:?}",pel.freq, pel.freq/tot, pel.coords.last().unwrap());
-	    }
-	}
-
-	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v, max_freq), reduced_v[0].freq/tot, *reduced_v[0].coords.last().unwrap())
-    }
     fn process_previous_actions(&mut self, va_issued:&Vec<Action>, va_opp_issued:&Vec<Action>, diff_life_arg:u8) {
 
 	let mut diff_life = diff_life_arg;
@@ -826,6 +745,12 @@ impl Path {
 	if diff_life_arg !=0 && va_issued.iter().any(|v| v.ac == Action_type::TORPEDO) && va_opp_issued.iter().any(|v| v.ac == Action_type::TORPEDO) {
 	    return
 	}
+
+	if va_issued.iter().filter(|&v| v.ac == Action_type::TORPEDO || v.ac == Action_type::TRIGGER).count() > 1 {
+	    eprintln!("Torpedo + trigger in previous action, don't update");
+	    return
+	}
+
 	
 	for a in va_opp_issued {
 	    match a.ac {
@@ -878,6 +803,7 @@ struct Simulator {
     adv_c: Coordinate,
     torpedo_v: u8,
     silence_v: u8,
+    mine_v: u8,
     adv_lost: u8,
     play_lost: u8,
     proba_coord: f64,
@@ -893,6 +819,7 @@ impl Simulator {
 	   adv_c:Coordinate,
 	   torpedo_v:u8,
 	   silence_v:u8,
+	   mine_v:u8,
 	   proba_coord:f64,
 	   play_life:u8,
 	   adv_life:u8) -> Simulator { Simulator {board:l_board,
@@ -900,6 +827,7 @@ impl Simulator {
 						  adv_c:adv_c,
 						  silence_v:silence_v,
 						  torpedo_v:torpedo_v,
+						  mine_v:mine_v,
 						  adv_lost:0,
 						  proba_coord:proba_coord,
 						  play_lost:0,
@@ -1070,7 +998,7 @@ impl Simulator {
 	    }
 
 
-	if self.proba_coord <= 0.2 && self.silence_v < 6 {
+	if self.proba_coord <= 0.2 && (self.silence_v < 6 || self.mine_v < 3){
 	    //proba is to low, need to create silence
 	    return None
 	}
@@ -1125,6 +1053,66 @@ impl Simulator {
   
 }
 
+//MINES Manager
+#[derive(Debug)]
+struct MinesMng {
+    list_mines: HashSet::<Coordinate>,
+
+    grid_probas: [[f64; MAX_X as usize]; MAX_Y as usize],
+}
+
+impl  MinesMng  {
+    fn new() -> MinesMng {
+	MinesMng {list_mines:HashSet::<Coordinate>::new(), grid_probas:[[0.0; MAX_X as usize]; MAX_Y as usize]}
+    }
+
+    fn add_mine(&mut self, c:&Coordinate) {
+	self.list_mines.insert(*c);
+    }
+
+    
+    fn get_remove_d1(&mut self, c:&Coordinate) -> Option<Coordinate> {
+
+	let mut retval = None;
+	self.list_mines.retain(|mc| {
+	    if mc.l2_dist(c) <= 1 {
+		retval=Some(*mc);
+		//v_act.push(Action { ac: Action_type::TRIGGER, coord:*mc, ..Default::default() });
+		false
+	    } else {
+		true
+	    }
+	});
+	retval
+    }
+
+    
+    
+    //reduce possible mines to freq to coordinate
+    fn update_mines_prob(&mut self, v:&Vec::<PathElem>)  {
+	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
+	for pel in v {
+	    for m in &pel.mines {
+		*frequency.entry(m).or_insert(0.0) += pel.freq;
+	    }
+	    
+	}
+
+	self.grid_probas = [[0.0; MAX_X as usize]; MAX_Y as usize];
+	let max_v = frequency.len() as f64;
+	for (co_m,freq) in &frequency {
+	    self.grid_probas[co_m.x as usize][co_m.y as usize] = (*freq as f64)/max_v;
+	}
+
+	eprintln!("Mines situations");
+	eprintln!("Num poss mines {}", frequency.len());
+	for (co_m,freq) in &frequency {
+	    eprintln!("Mines : {:?} freq : {}", co_m, freq);
+	}
+    }
+
+    
+}
 //------------ PREDICTOR
 #[derive(Debug)]
 struct Predictor {
@@ -1140,7 +1128,7 @@ struct Predictor {
     sonar :u8,
     mines: u8,
     actions_issued: Vec::<Action>,
-    list_mines: Vec::<Coordinate>,
+  
 }
 
 impl  Predictor  {
@@ -1155,10 +1143,80 @@ impl  Predictor  {
 			  torpedo:0,
 			  silence:0,
 			  sonar:0,
-			  mines:0,
-			  list_mines:Vec::<Coordinate>::new()};
+			  mines:0};
     }
 
+
+    fn get_possible_pos(&self, path:&Path) ->  (usize, Coordinate, (f64, f64), f64, Coordinate) {
+		
+	let mut reduced_v = Path::_reduce_search_space(&path.path_coords);
+	reduced_v.sort_unstable_by(|pela, pelb| pelb.freq.partial_cmp(&pela.freq).unwrap()); //reverse sort
+
+	
+
+	//path.mines_m.update_mines_prob(&path.path_coords);
+//	reduced_mines.sort_unstable_by(|(fa,_), (fb,_)| fb.partial_cmp(fa).unwrap()); //reverse sort
+
+	
+	eprintln!("Num possible coord {}", reduced_v.len());
+	eprintln!("Num possible path {}", path.path_coords.len());
+
+	//try to keep only the maximum confidences
+	//let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
+
+
+	let max_freq:f64 = reduced_v[cmp::min(reduced_v.len()-1, reduced_v.len()-1) as usize].freq;
+	eprintln!("Max k-{} max_freq : {}", cmp::min(4, reduced_v.len()-1), max_freq);
+	
+	
+	let mut xm:f64 = -1.0;
+	let mut ym:f64 = -1.0;
+
+	let mut tot:f64 = 0.0;
+	for pel in &reduced_v {
+	    if pel.freq < max_freq {
+		continue;
+	    }
+	    let el = pel.coords.last().unwrap();
+	    
+	    if xm < 0.0 {
+		xm = pel.freq*el.x as f64;
+		ym = pel.freq*el.y as f64;
+		tot += pel.freq;
+	    }
+	    else {
+		xm += pel.freq*el.x as f64;
+		ym += pel.freq*el.y as f64;
+		tot += pel.freq;
+	    }
+	    
+	}
+
+	xm /= tot;
+	ym /= tot;
+
+	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
+
+	//eprintln!("Possible mines : {}",reduced_mines.len());
+	/*for (f,c) in reduced_mines {
+		      eprintln!("Freq {}, coo : {:?}",f,c)
+	    
+	}*/
+	    
+	
+	eprintln!("round {:?}", round_coord);
+	if reduced_v.len() < 40
+	{
+	    for pel in &reduced_v
+	    {
+		eprintln!("freq : {}, prob {},  val : {:?}",pel.freq, pel.freq/tot, pel.coords.last().unwrap());
+	    }
+	}
+
+	(reduced_v.len(),round_coord, Path::comp_variance(&reduced_v, max_freq), reduced_v[0].freq/tot, *reduced_v[0].coords.last().unwrap())
+    }
+
+    
     //to do dont print!
     fn get_actions_to_play(&mut self) -> Vec::<Action> {
 	eprintln!("Torpedo val {}",self.torpedo);
@@ -1172,13 +1230,13 @@ impl  Predictor  {
 
 
 		eprintln!("*** MY possible pos");
-		let (my_n_pos_l, _,_, proba_my_loc, _) = self.my_path.get_possible_pos();
+		let (my_n_pos_l, _,_, proba_my_loc, _) = self.get_possible_pos(&self.my_path);
 
 		proba_my = proba_my_loc;
 		eprintln!("mynpos proba {}", proba_my);
 		
 	
-		let (n_pos, coord_mean, variance, prob, max_prob_coord) = self.path.get_possible_pos();
+		let (n_pos, coord_mean, variance, prob, max_prob_coord) = self.get_possible_pos(&self.path);
 		let coord = max_prob_coord;
 		eprintln!("*** ADV possible pos np: {}, var: {:?}, prob : {}", n_pos, variance, prob);
 
@@ -1189,6 +1247,7 @@ impl  Predictor  {
 					   coord,
 					   self.torpedo,
 					   self.silence,
+					   self.mines,
 					   prob,
 					   *self.my_life.last().unwrap(),
 					   *self.op_life.last().unwrap());
@@ -1207,15 +1266,11 @@ impl  Predictor  {
 		
 		if prob > 0.9 {
 
-		    
-		    self.list_mines.retain(|mc| {
-			if mc.l2_dist(&max_prob_coord) <= 1 {
-			    v_act.push(Action { ac: Action_type::TRIGGER, coord:*mc, ..Default::default() });
-			    false
-			} else {
-			    true
-			}
-		    });
+		    match self.my_path.mines_m.get_remove_d1(&max_prob_coord) {
+			Some(c) => v_act.push(Action { ac: Action_type::TRIGGER, coord:c, ..Default::default() }),
+			None => {} ,
+		    }
+
 			
 		    /*for c in &self.list_mines {
 			if c.l2_dist(&max_prob_coord) <= 1 {
@@ -1233,7 +1288,7 @@ impl  Predictor  {
 
 	    if self.mines == 3 {
 		v_act.push(Action { ac: Action_type::MINE, dir:next_dir, ..Default::default() });
-		self.list_mines.push(self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
+		self.my_path.mines_m.add_mine(&self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
 		eprintln!("Mine added {:?}", self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
 		self.mines = 0;
 	    }
@@ -1276,6 +1331,7 @@ impl  Predictor  {
 	v_act
     }
     fn update_situation(&mut self,opp_life:u8, my_life:u8, x:u8, y:u8, opponent_orders:&Vec::<Action>) {
+	self.path.update_mines_infos();
 	self.op_life.push(opp_life);
 	self.cur_co = Coordinate {x:x,y:y};
 	self.play_board.set_visited(&self.cur_co);
