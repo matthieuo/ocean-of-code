@@ -224,7 +224,25 @@ impl Board {
 	Board {grid:r}
     }
 
+    fn get_visited_stat(&self) -> (f64,f64) {
+	let mut x_s = [false; MAX_X as usize];
+	let mut y_s = [false; MAX_Y as usize];
+	
+	for x in 0..15 {
+	    for y in 0..15 {
+		if self.grid[x as usize][y as usize] == 1 {
+		    x_s[x as usize] = true;
+		    y_s[y as usize] = true;
+		    
+		}
+	    }
+	}
 
+	
+
+	(x_s.iter().filter(|&n| *n == true).count() as f64, y_s.iter().filter(|&n| *n == true).count() as f64)
+    }
+    
 
     fn _rec_torpedo_coord_help(&self,c_init:&Coordinate, x:i32,y:i32,hist :&mut HashSet::<(i32,i32)>, ret_list:&mut Vec::<Coordinate>, num_vi:&mut i32){
 
@@ -1073,11 +1091,12 @@ sim_exec += 1;
     }
 
     fn eval_func_move(&self, m_path:&Path) -> f64 {
-
 	let mut grid: [[bool; MAX_X as usize]; MAX_Y as usize] = [[false; MAX_X as usize]; MAX_Y as usize];
 	let po = self.board._rec_num_pos(&self.play_c, &mut grid);
-
-	return po as f64;
+	let (mx,my) = self.board.get_visited_stat();
+	
+	let maxim = self.torpedo_v + self.mine_v + self.silence_v;
+	return po as f64 + maxim as f64 - (mx-my).abs() as f64;
     }
 
     fn compute_best_move_sequence(&self, m_path:&Path) -> Option<(Vec::<Action>, Simulator)> {
@@ -1484,7 +1503,7 @@ impl  Predictor  {
 		    }
 		}
 	    }
-	    
+	//eprintln!("==== STAT {:?}",self.play_board.get_visited_stat());
 	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
 
 	v_act.extend(&v_act_move);
