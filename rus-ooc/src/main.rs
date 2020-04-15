@@ -906,72 +906,7 @@ impl Simulator {
 	ret_acts
     }
 
-    fn simule_random(&self, mymines:&MinesMng, adv:bool) { // -> Option<(Vec::<Action>, Simulator)> {
-
-	let mut vec_act = Vec::<Action>::new();
-
-	let mut v_torp =  Vec::<Action>::new();
-	
-	let mut v_trig =  Vec::<Action>::new();
-	
-	let max_duration = Duration::from_millis(30);
-	let start = Instant::now();
-	let mut sim_exec = 0;
-	let mut sim_none = 0;
-
-	let mut poss_actions = self.get_possible_actions();
-	
-	loop {
-	    v_trig.clear();
-	    v_torp.clear();
-	    
-	    if !adv {
-		//adv sim doesnt handle mine
-		for c in  &mymines.list_mines {
-		    v_trig.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
-		}
-	    }
-	
-	    if adv { //if the player is adv
-		for a in &self.board.get_diag_coord(&self.play_c) {
-		    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
-		}
-	    }
-	    else {
-		for a in &self.board.get_diag_coord(&self.adv_c) {
-		    v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
-		}
-	    }
-
-	    poss_actions.push(v_torp.to_vec());
-	    poss_actions.push(v_trig.to_vec());
-	    
-	    vec_act.clear();
-
-	    for va in &poss_actions {
-		if !va.is_empty(){
-		    vec_act.push(*va.choose(&mut rand::thread_rng()).unwrap());
-		}
-	    }
-sim_exec += 1;
-	    //eprintln!("VEC {:?}",vec_act);
-	  /*  match self.play_ac_l(&vec_act)
-	    {
-		Some(sim) => {
-		    sim_exec += 1;
-		}
-		None => {sim_none += 1},
-	    }*/
-
-	    let duration = start.elapsed();
-	    if duration > max_duration {
-		eprintln!("Exit loop, time : {:?}",duration);
-		break;
-	    }
-	}
-	eprintln!("Number of sims : {} {}",sim_exec, sim_none);
-//	None
-    }
+    
     
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<(Simulator)> {
 	let mut sim_sim = self.clone();
@@ -1000,7 +935,10 @@ sim_exec += 1;
 		    }
 		},
 	    
-		Action_type::SURFACE => return None,
+		Action_type::SURFACE => {
+		    //sim_sim.board.rem_visited();
+		    sim_sim.play_life -=1;
+		},
 		Action_type::TORPEDO => {
 
 		    //eprintln!("Torp val co {:?}, vec {:?}", a.coord, sim_sim.board.get_torpedo_pos_from_coord(&a.coord));
@@ -1153,9 +1091,9 @@ sim_exec += 1;
 	let dc = self.board.get_diag_coord(&self.play_c);
 
 	let avoid_mines:f64 = dc.iter().map(|&c| self.adv_mines.grid_probas[c.x as usize][c.y as usize]).sum();
-	eprintln!("Avoid mines {}",avoid_mines);
-//	let avoid_mines = self.adv_mines.grid_probas
-	return po as f64 + maxim as f64 - (mx-my).abs() + mines - 30.0*avoid_mines;
+	eprintln!("Avoid mines {} {:?}",30.0*avoid_mines,self.play_c);
+	//let avoid_mines = self.adv_mines.grid_probas
+	return po as f64 + maxim as f64 - (mx-my).abs() + mines - 30.0*avoid_mines + 10.0*self.play_life as f64;
     }
 
     fn compute_best_move_sequence(&self, with_sil:bool,with_move:bool) -> Option<(Vec::<Action>, Simulator)> {
@@ -1163,6 +1101,7 @@ sim_exec += 1;
 	let mut v_sil =  Vec::<Action>::new();
 	let mut v_mines =  Vec::<Action>::new();
 	
+	let surf_ac = Action { ac: Action_type::SURFACE, sector:self.play_c.to_surface(), ..Default::default() };
 	
 	let mut ret_val_std = None; //:Option::<(Vec::<Action>, Simulator)> = None;
 
@@ -1202,6 +1141,38 @@ sim_exec += 1;
 	for a in &v_move{
 	    for m in &v_mines{
 		let v_try = vec![*a, *m];
+		match self.play_ac_l(&v_try)
+		{
+		    Some(sim) => {
+			let ev_f = sim.eval_func_move();
+			if ev_f > max_op {
+			    max_op = ev_f;
+			    ret_val_std = Some((v_try, sim));
+			}
+		    }
+		    None => continue,
+		}
+	    }
+	}
+
+	for a in &v_move{
+	    let v_try = vec![surf_ac, *a];
+	    match self.play_ac_l(&v_try)
+	    {
+		Some(sim) => {
+		    let ev_f = sim.eval_func_move();
+		    if ev_f > max_op {
+			max_op = ev_f;
+			ret_val_std = Some((v_try, sim));
+		    }
+		}
+		None => continue,
+	    }
+	}
+	
+	for a in &v_move{
+	    for m in &v_mines{
+		let v_try = vec![surf_ac, *a, *m];
 		match self.play_ac_l(&v_try)
 		{
 		    Some(sim) => {
@@ -1329,21 +1300,19 @@ sim_exec += 1;
 
 
 
-
-/*	let mut v_ret_ac = Vec::<Action>::new();
 	for a in &v_torp {
-	    let v_try = &vec![*a];
-	    match self.play_ac_l(v_try, &mut v_ret_ac)
-	    {
-		Some((nva,sim)) => {
-		    let ev_f = sim.eval_func();
-		    if ev_f  > max_op {
-			max_op = ev_f;
-			ret_val = Some((nva, sim));
-		    }
-		}
-		None => continue,
-	    }
+	    let v_try = vec![*a];
+			match self.play_ac_l(&v_try)
+			{
+			    Some(sim) => {
+				let ev_f = sim.eval_func();
+				if ev_f  > max_op {
+				    max_op = ev_f;
+				    ret_val = Some((v_try, sim));
+				}
+			    }
+			    None => continue,
+			}
 	}
 	if self.proba_coord <= 0.2 && (self.silence_v < 6 || self.mine_v < 3){
 	    //proba is to low, need to create silence
@@ -1360,18 +1329,18 @@ sim_exec += 1;
 	    eprintln!("Proba inf > 0.2, move +  torpedo");
 	    for a_move in &v_move {
 		for a in &v_torp {
-		    let v_try = &vec![*a_move, *a];
-		    match self.play_ac_l(v_try, &mut v_ret_ac)
-		    {
-			Some((nva,sim)) => {
-			    let ev_f = sim.eval_func();
-			    if ev_f  > max_op {
-				max_op = ev_f;
-				ret_val = Some((nva, sim));
+		    let v_try = vec![*a_move, *a];
+			match self.play_ac_l(&v_try)
+			{
+			    Some(sim) => {
+				let ev_f = sim.eval_func();
+				if ev_f  > max_op {
+				    max_op = ev_f;
+				    ret_val = Some((v_try, sim));
+				}
 			    }
+			    None => continue,
 			}
-			None => continue,
-		    }
 		}
 	    }
 	}
@@ -1382,14 +1351,14 @@ sim_exec += 1;
 	    for a_move in &v_move {
 		for a_sil in &v_sil {
 		    for a in &v_torp {
-			let v_try = &vec![*a_move,*a_sil, *a];
-			match self.play_ac_l(v_try, &mut v_ret_ac)
+			let v_try = vec![*a_move,*a_sil, *a];
+			match self.play_ac_l(&v_try)
 			{
-			    Some((nva,sim)) => {
+			    Some(sim) => {
 				let ev_f = sim.eval_func();
 				if ev_f  > max_op {
 				    max_op = ev_f;
-				    ret_val = Some((nva, sim));
+				    ret_val = Some((v_try, sim));
 				}
 			    }
 			    None => continue,
@@ -1397,7 +1366,7 @@ sim_exec += 1;
 		    }
 		}
 	    }
-	}*/
+	}
 	ret_val
     }
   
@@ -1607,7 +1576,7 @@ impl  Predictor  {
 //		eprintln!("NB : {}", simul.get_possible_actions(false).len());
 
 		let mut next_sim = simul.clone();
-	/*	match simul.compute_best_sequence(&self.my_path.mines_m, &self.path.mines_m) {
+		match simul.compute_best_sequence(&self.my_path.mines_m, &self.path.mines_m) {
 		    Some((v,sim)) => {
 			eprintln!("FFFFFF {:?} {} {}",v, sim.adv_lost,sim.play_lost);
 			v_act = v;
@@ -1619,7 +1588,7 @@ impl  Predictor  {
 			next_sim = sim;
 		    },
 		    None => eprintln!("FFFFFF NOT"),
-		}*/
+		}
 		let has_sil = v_act.iter().any(|&x| x.ac == Action_type::SILENCE);
 		let has_move = v_act.iter().any(|&x| x.ac == Action_type::MOVE);
 		
