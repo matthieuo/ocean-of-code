@@ -858,54 +858,6 @@ impl Simulator {
 						  adv_life:adv_life,
 						  play_life:play_life}}
 
-
-
-
-    fn get_possible_actions(&self) -> Vec::<Vec::<Action>> {
-	let mut ret_acts = Vec::<Vec::<Action>>::new();
-	let mut v_move = Vec::<Action>::new();
-	let mut v_sil =  Vec::<Action>::new();
-	let mut v_torp =  Vec::<Action>::new();
-	
-	let mut v_trig =  Vec::<Action>::new();
-	
-	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
-	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
-	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
-	    //v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
-	    
-	    for i in 1..5 {
-		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
-	    }
-	}
-
-/*	if !adv {
-	    //adv sim doesnt handle mine
-	for c in  &m_play.list_mines {
-	    v_trig.push(Action { ac: Action_type::TRIGGER, coord:*c, ..Default::default() });
-	}
-	}
-	
-	if adv { //if the player is adv
-	    for a in &self.board.get_diag_coord(&self.play_c) {
-		v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
-	    }
-	}
-	else {
-	    for a in &self.board.get_diag_coord(&self.adv_c) {
-		v_torp.push(Action { ac: Action_type::TORPEDO, coord:*a, ..Default::default() });
-	    }
-	}*/
-
-	ret_acts.push(v_move);
-	ret_acts.push(v_sil);
-/*	ret_acts.push(v_torp);
-	ret_acts.push(v_trig);*/
-	
-    
-	ret_acts
-    }
-
     
     
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<(Simulator)> {
@@ -1091,9 +1043,9 @@ impl Simulator {
 	let dc = self.board.get_diag_coord(&self.play_c);
 
 	let avoid_mines:f64 = dc.iter().map(|&c| self.adv_mines.grid_probas[c.x as usize][c.y as usize]).sum();
-	eprintln!("Avoid mines {} {:?}",30.0*avoid_mines,self.play_c);
+	//eprintln!("Avoid mines {} {:?}",30.0*avoid_mines,self.play_c);
 	//let avoid_mines = self.adv_mines.grid_probas
-	return po as f64 + maxim as f64 - (mx-my).abs() + mines - 30.0*avoid_mines + 10.0*self.play_life as f64;
+	return po as f64 + maxim as f64 - (mx-my).abs() + mines - 30.0*avoid_mines;
     }
 
     fn compute_best_move_sequence(&self, with_sil:bool,with_move:bool) -> Option<(Vec::<Action>, Simulator)> {
@@ -1101,7 +1053,7 @@ impl Simulator {
 	let mut v_sil =  Vec::<Action>::new();
 	let mut v_mines =  Vec::<Action>::new();
 	
-	let surf_ac = Action { ac: Action_type::SURFACE, sector:self.play_c.to_surface(), ..Default::default() };
+	//let surf_ac = Action { ac: Action_type::SURFACE, sector:self.play_c.to_surface(), ..Default::default() };
 	
 	let mut ret_val_std = None; //:Option::<(Vec::<Action>, Simulator)> = None;
 
@@ -1155,37 +1107,6 @@ impl Simulator {
 	    }
 	}
 
-	for a in &v_move{
-	    let v_try = vec![surf_ac, *a];
-	    match self.play_ac_l(&v_try)
-	    {
-		Some(sim) => {
-		    let ev_f = sim.eval_func_move();
-		    if ev_f > max_op {
-			max_op = ev_f;
-			ret_val_std = Some((v_try, sim));
-		    }
-		}
-		None => continue,
-	    }
-	}
-	
-	for a in &v_move{
-	    for m in &v_mines{
-		let v_try = vec![surf_ac, *a, *m];
-		match self.play_ac_l(&v_try)
-		{
-		    Some(sim) => {
-			let ev_f = sim.eval_func_move();
-			if ev_f > max_op {
-			    max_op = ev_f;
-			    ret_val_std = Some((v_try, sim));
-			}
-		    }
-		    None => continue,
-		}
-	    }
-	}
 
 
 	/*for a in &v_sil{
@@ -1524,7 +1445,7 @@ impl  Predictor  {
 	    
 	
 	eprintln!("round {:?}", round_coord);
-	if reduced_v.len() < 40
+	if reduced_v.len() < 10
 	{
 	    for pel in &reduced_v
 	    {
@@ -1559,6 +1480,18 @@ impl  Predictor  {
 		eprintln!("*** ADV possible pos np: {}, var: {:?}, prob : {}", n_pos, variance, prob);
 
 
+		let dc = self.play_board.get_diag_coord(&self.cur_co);
+		let avoid_mines:f64 = dc.iter().map(|&c| self.path.mines_m.grid_probas[c.x as usize][c.y as usize]).sum();
+		eprintln!("Avoid mines {}",30.0*avoid_mines);
+		let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
+		if dir.is_empty() || 30.0*avoid_mines > 100.0 {
+		    self.play_board.rem_visited();
+		    *(self.my_life.last_mut().unwrap()) -=1;
+		    eprintln!("SURFACE, sector {}",self.cur_co.to_surface());
+		    v_act.push(Action { ac: Action_type::SURFACE, sector:self.cur_co.to_surface(), ..Default::default() });
+		    //println!("{}SURFACE",add_str)
+		}
+		
 	
 		let simul = Simulator::new(self.play_board,
 					   self.my_path.mines_m.clone(),
@@ -1572,6 +1505,9 @@ impl  Predictor  {
 					   *self.my_life.last().unwrap(),
 					   *self.op_life.last().unwrap());
 
+
+
+		
 		//simul.simule_random(&self.my_path.mines_m, false);
 //		eprintln!("NB : {}", simul.get_possible_actions(false).len());
 
@@ -1585,6 +1521,7 @@ impl  Predictor  {
 			self.mines = sim.mine_v;
 			self.cur_co = sim.play_c;
 			self.play_board = sim.board; //update board, should be ok...
+			self.my_path.mines_m = sim.my_mines.clone();
 			next_sim = sim;
 		    },
 		    None => eprintln!("FFFFFF NOT"),
@@ -1602,6 +1539,7 @@ impl  Predictor  {
 			self.mines = sim.mine_v;
 			self.cur_co = sim.play_c;
 			self.play_board = sim.board; //update board, should be ok...
+			self.my_path.mines_m = sim.my_mines;
 		    },
 		    None => eprintln!("FFmove NOT"),
 		}
@@ -1625,10 +1563,11 @@ impl  Predictor  {
 	    self.silence = 0;
 	}
 	//eprintln!("==== STAT {:?}",self.play_board.get_visited_stat());
-	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
+	
 
 
-	if v_act_move.is_empty() && !dir.is_empty(){ //for the firsts rounds
+	if v_act_move.is_empty() { // && !dir.is_empty(){ //for the firsts rounds
+	    let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
 	    let next_dir = *dir.front().unwrap();
 
 	    if self.mines == 3 {
@@ -1666,12 +1605,12 @@ impl  Predictor  {
 	    }
 
 	}
-	if v_act.is_empty() { //ok no action so surface
+/*	if v_act.is_empty() { //ok no action so surface
 	    self.play_board.rem_visited();
 	    eprintln!("SURFACE, sector {}",self.cur_co.to_surface());
 	    v_act.push(Action { ac: Action_type::SURFACE, sector:self.cur_co.to_surface(), ..Default::default() });
 	    //println!("{}SURFACE",add_str)
-	}
+	}*/
 	self.actions_issued = v_act.to_vec(); //copy here
 	v_act
     }
