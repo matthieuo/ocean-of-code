@@ -1614,11 +1614,21 @@ impl  Predictor  {
 		    }
 		}
 	    }
+
+	v_act.extend(&v_act_move);
+	
+	if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
+	    let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
+	    let next_dir = *dir.front().unwrap();
+	    eprintln!("He found me, silence !!");
+	    v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
+	    self.silence = 0;
+	}
 	//eprintln!("==== STAT {:?}",self.play_board.get_visited_stat());
 	let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
 
-	v_act.extend(&v_act_move);
-	if v_act_move.is_empty() && !dir.is_empty(){
+
+	if v_act_move.is_empty() && !dir.is_empty(){ //for the firsts rounds
 	    let next_dir = *dir.front().unwrap();
 
 	    if self.mines == 3 {
