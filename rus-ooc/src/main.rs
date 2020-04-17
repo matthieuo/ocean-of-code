@@ -6,6 +6,7 @@ use std::collections::LinkedList;
 use std::cmp::Reverse;
 use std::cmp;
 use std::str::FromStr;
+use std::iter::FromIterator;
 use std::time::{Duration, Instant};
 //use itertools::Itertools;
 //use std::collections::VecDeque;
@@ -590,8 +591,12 @@ impl Path {
 	let mut p_coords_reduced = Vec::<PathElem>::new();
 	
 	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
+
+	let mut coord_reduce: HashSet<Coordinate> = HashSet::new();
+
 	
 	for pel in v_coord {
+	    coord_reduce.extend(pel.mines.iter());
 	    let freq = pel.freq;
 	    let coord = &pel.coords;
 	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += freq;
@@ -600,8 +605,9 @@ impl Path {
 	
 	//update the path
 	//self.path_coords.clear();
+	
 	for (co,freq) in &frequency {
-	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::<Coordinate>::new()});
+	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::from_iter(coord_reduce.iter().copied())});
 	}
 	p_coords_reduced
     }
@@ -644,8 +650,8 @@ impl Path {
 				cur_path.push(c_valid);
 
 				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
-				let new_freq:f64 = (pel.freq)*(((10-2*i) as f64)/10.0);
-				//let new_freq:f64 = *freq;
+				//let new_freq:f64 = (pel.freq)*(((10-2*i) as f64)/10.0);
+				let new_freq:f64 = pel.freq;
 				p_coords_l.push(PathElem {freq:new_freq, coords:cur_path.to_vec(), mines:pel.mines.to_vec()}); //explicit copy
 				cur_pos = c_valid;
 
@@ -770,23 +776,14 @@ impl Path {
 	}
 
 	
-	for a in va_opp_issued {
-	    match a.ac {
-		Action_type::MOVE => {},
-		Action_type::SURFACE => {
-		    diff_life -= 1;
-		    eprintln!("== correction with surface");
-		},
-		Action_type::TORPEDO =>  {},
-		Action_type::SONAR => {},
-		Action_type::SILENCE => {},
-		Action_type::MINE => {},
-		Action_type::TRIGGER => {},
-	    }   
-	}
 	
 	let mut coord_torpedo = Coordinate {x:0,y:0};
 	if  va_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO || v.ac == Action_type::TRIGGER}) {
+
+	    if  va_opp_issued.iter().any(|a| a.ac == Action_type::SURFACE) {
+		diff_life -= 1;
+		eprintln!("== correction with surface");
+	    }
 	    eprintln!("Found torpedo or trigger previous");
 	    //let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
 	    match  diff_life {
@@ -938,7 +935,7 @@ impl Simulator {
 		}
 		Action_type::SONAR => continue, //return None,
 		Action_type::SILENCE => {
-		    let mut exit = false;
+		    //let mut exit = false;
 		    if sim_sim.silence_v < 6 {
 			return None
 		    }
@@ -1557,27 +1554,31 @@ impl  Predictor  {
 	
 	if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
 	    let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
-	    let next_dir = *dir.front().unwrap();
-	    eprintln!("He found me, silence !!");
-	    v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
-	    self.silence = 0;
+	    if !dir.is_empty() {
+		let next_dir = *dir.front().unwrap();
+		eprintln!("He found me, silence !!");
+		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
+		self.silence = 0;
+	    }
 	}
 	//eprintln!("==== STAT {:?}",self.play_board.get_visited_stat());
 	
 
 
-	if v_act_move.is_empty() { // && !dir.is_empty(){ //for the firsts rounds
+	if v_act.is_empty() { // && !dir.is_empty(){ //for the firsts rounds
 	    let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
 	    let next_dir = *dir.front().unwrap();
 
-	    if self.mines == 3 {
-		v_act.push(Action { ac: Action_type::MINE, dir:next_dir, ..Default::default() });
-		self.my_path.mines_m.add_mine(&self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
-		eprintln!("Mine added {:?}", self.play_board.check_dir( &self.cur_co,&next_dir).unwrap());
-		self.mines = 0;
-	    }
 	    
-	    if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
+	    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
+	    
+	    self.torpedo += 1;
+	    self.torpedo = cmp::min(self.torpedo,3);
+		
+	}
+	    
+	  
+	 /*   if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
 		eprintln!("He found me, silence !!");
 		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
 		self.silence = 0;
@@ -1604,7 +1605,7 @@ impl  Predictor  {
 		
 	    }
 
-	}
+	}*/
 /*	if v_act.is_empty() { //ok no action so surface
 	    self.play_board.rem_visited();
 	    eprintln!("SURFACE, sector {}",self.cur_co.to_surface());
