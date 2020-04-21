@@ -591,15 +591,18 @@ impl Path {
 	let mut p_coords_reduced = Vec::<PathElem>::new();
 	
 	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
+	let mut frequency_mines: HashMap<&Coordinate, HashSet<Coordinate>> = HashMap::new();
+	
 
-	let mut coord_reduce: HashSet<Coordinate> = HashSet::new();
+	//let mut coord_reduce: HashSet<Coordinate> = HashSet::new();
 
 	
 	for pel in v_coord {
-	    coord_reduce.extend(pel.mines.iter());
+	   // coord_reduce.extend(pel.mines.iter());
 	    let freq = pel.freq;
 	    let coord = &pel.coords;
 	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += freq;
+	    frequency_mines.entry(coord.last().unwrap()).or_insert(HashSet::<Coordinate>::new()).extend(pel.mines.iter());
 	}
 	//eprintln!("*********** REDUCED, MINES NOT TAKEN");
 	
@@ -607,21 +610,23 @@ impl Path {
 	//self.path_coords.clear();
 	
 	for (co,freq) in &frequency {
-	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::from_iter(coord_reduce.iter().copied())});
+
+	    
+	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::from_iter(frequency_mines[co].iter().copied())});
 	}
 	p_coords_reduced
     }
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
-	let max_search:usize = 5000;
+	let max_search:usize = 1000;
 	let mut p_coords_l = Vec::<PathElem>::new();
 
 	if self.path_coords.len() > max_search {
 	    eprintln!("REDUCE size before : {}", self.path_coords.len());
 
 	    self.path_coords =  Path::_reduce_search_space(&self.path_coords);
-	    self.reduced = true;
+	    //self.reduced = true;
 	   
 	    eprintln!("REDUCE size after : {}", self.path_coords.len());
 	    panic!("REDUCED should be avoided");
@@ -650,8 +655,8 @@ impl Path {
 				cur_path.push(c_valid);
 
 				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
-				//let new_freq:f64 = (pel.freq)*(((10-2*i) as f64)/10.0);
-				let new_freq:f64 = pel.freq;
+				let new_freq:f64 = (pel.freq)*(((10-2*i) as f64)/10.0);
+				//let new_freq:f64 = pel.freq;
 				p_coords_l.push(PathElem {freq:new_freq, coords:cur_path.to_vec(), mines:pel.mines.to_vec()}); //explicit copy
 				cur_pos = c_valid;
 
@@ -1647,7 +1652,8 @@ macro_rules! parse_input {
  * the standard input according to the problem statement.
  **/
 fn main() {
-
+   
+    
     let mut vec = Vec::<String>::new();
     
     let mut input_line = String::new();
@@ -1664,6 +1670,8 @@ fn main() {
 
     }
 
+
+    
 	
     let board = Board::new(&vec);  //ok dont use now board because value are copied on predictor
     let mut predictor = Predictor::new(board);
