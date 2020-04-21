@@ -7,15 +7,12 @@ use std::cmp::Reverse;
 use std::cmp;
 use std::str::FromStr;
 use std::iter::FromIterator;
-use std::time::{Duration, Instant};
-//use itertools::Itertools;
-//use std::collections::VecDeque;
+use std::time::Instant;
 
-//extern crate rand;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-//use std::fmt;
+
 const MAX_X:u8 = 15;
 const MAX_Y:u8 = 15;
 
@@ -30,7 +27,6 @@ impl Default for Direction {
     fn default() -> Self { Direction::N }
 }
 impl FromStr for Direction {
-    //type Err = std::num::ParseIntError;
     type Err = ();
     fn from_str(s: &str) -> Result<Self, ()> {
         match s {
@@ -92,20 +88,6 @@ struct Action {
     sector: u8,
     ac_load: Action_type, //only for load
 }
-
-/*impl fmt::Display for Point {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-	    match self.ac {
-		Action_type::MOVE => write!(f, "MOVE {:?}", self.coord.dir),
-		Action_type::SURFACE => write!(f, "SURFACE"),
-		Action_type::TORPEDO => write!(f, "TORPEDO {}, {}", self.coord.x, self.coord.y),
-		Action_type::SONAR => {},
-		Action_type::SILENCE => write!(f, "SILENCE"),
-		Action_type::MINE => {},
-		Action_type::TRIGGER => {},
-	    }
-    }
-}*/
     
 impl Action {
     fn repr_action_v(va :&Vec::<Action>) -> String{
@@ -257,7 +239,6 @@ impl Board {
 
 	if c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) > 4
 	{
-	    //eprintln!("sup {:?} {:?} dist {}",c_init, Coordinate {x:(x) as u8, y:(y) as u8},c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) );
 	    return
 	}
 	
@@ -265,7 +246,6 @@ impl Board {
 	
 	if c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) == 4
 	{
-	    //eprintln!("sup {:?} {:?} dist {}",c_init, Coordinate {x:(x) as u8, y:(y) as u8},c_init.dist(&Coordinate {x:(x) as u8, y:(y) as u8}) );
 	    return
 	}
 
@@ -285,7 +265,6 @@ impl Board {
 	let mut ret = Vec::<Coordinate>::new();
 	let mut num_vi = 0;
 	self._rec_torpedo_coord_help(&c, c.x as i32, c.y as i32,  &mut HashSet::<(i32,i32)>::new(), &mut ret, &mut num_vi);
-	//eprintln!("Num vi {}", num_vi);
 	ret
     }
     
@@ -350,23 +329,7 @@ impl Board {
 	
     }
     
-    /*fn _bfs_best_path(&self, cur_pos :&Coordinate) { //-> (u8, LinkedList::<Direction>) {
-	let mut visited = [[false;MAX_X as usize];MAX_Y as usize];
-
-	let mut queue = VecDeque::<Coordinate>::new();
-	queue.push_back(*cur_pos) ;
-        visited[cur_pos.x as usize][cur_pos.y as usize] = true;
-	
-	while !queue.is_empty() {
-	    let c = queue.pop_back().unwrap();
-
-	    
-	    
-	}
-	
-    }*/
-
-
+ 
     
     fn _rec_best_path(&self, cur_pos :&Coordinate, hist: &mut [[bool; MAX_X as usize]; MAX_Y as usize]) -> (u8, LinkedList::<Direction>) {
 	//hist.insert(*cur_pos);
@@ -376,33 +339,10 @@ impl Board {
 
 	let mut dir_max = LinkedList::<Direction>::new();
 	let mut max_val = 0;
-
-	/*let vec_it:Vec<Direction>;
-
-	if cur_pos.x<=7 && cur_pos.y <= 7 {
-	    vec_it = vec![Direction::S, Direction::E, Direction::W, Direction::N];
-	}
-	else if cur_pos.x<=7 && cur_pos.y > 7 {
-	    vec_it = vec![Direction::N, Direction::E, Direction::W, Direction::S];
-	}
-	else if cur_pos.x>7 && cur_pos.y <= 7 {
-	    vec_it = vec![Direction::S, Direction::W, Direction::E, Direction::N];
-	}
-	else  {
-	    vec_it = vec![Direction::N, Direction::W, Direction::E, Direction::S];
-	}
 	 
-   
-	for d in &vec_it{*/
-	let mut rng = thread_rng();
-	let mut dir_s = [Direction::N, Direction::S, Direction::W, Direction::E];
-	//println!("Unshuffled: {:?}", y);
-	dir_s.shuffle(&mut rng);
-	//println!("Shuffled:   {:?}", y);
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E]{
 	    match self.check_dir(cur_pos, d) {
 		Some(c_valid) => {
-		    //if !hist.contains(&c_valid) {
 		    if !hist[c_valid.x as usize][c_valid.y as usize] {
 			let (val, r_l) = self._rec_best_path(&c_valid, hist);
 			sum_a += val;
@@ -438,20 +378,6 @@ impl Board {
 	  
 	}
 	sum_a
-    }
-    fn num_avail_pos(&self, cur_pos :&Coordinate) -> [(u8,Direction); 4] {
-	let mut arr:[(u8,Direction); 4] = [(0,Direction::N) ;4];
-	let mut grid: [[bool; MAX_X as usize]; MAX_Y as usize] = [[false; MAX_X as usize]; MAX_Y as usize];
-	
-	for (idx,d) in [Direction::N, Direction::S, Direction::W, Direction::E].iter().enumerate(){
-	    match self.check_dir(cur_pos, d) {
-		Some(c_valid) => arr[idx] = (self._rec_num_pos(&c_valid, &mut grid), *d),
-		None    => arr[idx] = (0, *d)
-	    }
-    
-	}
-	arr.sort_by_key(|k| Reverse(k.0));
-	arr
     }
 
 
@@ -527,8 +453,6 @@ impl Path {
 	if !self.reduced {
 	    eprintln!("OK not reduced, we process mine");
 	    for pel in self.path_coords.iter_mut(){
-		//eprintln!("Ok we add {:?}", pel.coords.last().unwrap());
-		//eprintln!("Ok we add {:?}", self.board.get_nsew_coord(pel.coords.last().unwrap()));
 		pel.mines.append(&mut self.board.get_nsew_coord(pel.coords.last().unwrap()));
 	    }
 
@@ -565,7 +489,7 @@ impl Path {
 	    for x in rx..(rx + 5){
 		for y in ry..(ry + 5){
 		    if l_g.grid[x as usize][y as usize] == 10 {
-			continue; //Do not add the island
+			continue; //Do not add the islands
 		    }
                     if pel.coords.last().unwrap() == &(Coordinate {x:x, y:y}) {
 			return true;
@@ -575,7 +499,7 @@ impl Path {
 	    return false;
 	});
 	
-	//reset the paths, we keep mines ????
+	//reset the paths, we keep mines 
 	for pel in &mut self.path_coords {
 	    pel.coords = vec![*pel.coords.last().unwrap()]
 	}
@@ -583,9 +507,7 @@ impl Path {
 	    
     }
 
-  
-
-    
+      
     fn _reduce_search_space(v_coord :&Vec::<PathElem>) -> Vec::<PathElem> {
 	//ok reduce search space
 	let mut p_coords_reduced = Vec::<PathElem>::new();
@@ -593,25 +515,15 @@ impl Path {
 	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
 	let mut frequency_mines: HashMap<&Coordinate, HashSet<Coordinate>> = HashMap::new();
 	
-
-	//let mut coord_reduce: HashSet<Coordinate> = HashSet::new();
-
 	
 	for pel in v_coord {
-	   // coord_reduce.extend(pel.mines.iter());
 	    let freq = pel.freq;
 	    let coord = &pel.coords;
 	    *frequency.entry(coord.last().unwrap()).or_insert(0.0) += freq;
 	    frequency_mines.entry(coord.last().unwrap()).or_insert(HashSet::<Coordinate>::new()).extend(pel.mines.iter());
 	}
-	//eprintln!("*********** REDUCED, MINES NOT TAKEN");
-	
-	//update the path
-	//self.path_coords.clear();
 	
 	for (co,freq) in &frequency {
-
-	    
 	    p_coords_reduced.push(PathElem {freq:*freq, coords:vec![**co], mines:Vec::from_iter(frequency_mines[co].iter().copied())});
 	}
 	p_coords_reduced
@@ -619,14 +531,13 @@ impl Path {
     
     fn process_silence(&mut self) {
 	eprintln!("Process SILENCE");
-	let max_search:usize = 1000;
+	let max_search:usize = 1000; //max paths before reduction
 	let mut p_coords_l = Vec::<PathElem>::new();
 
 	if self.path_coords.len() > max_search {
 	    eprintln!("REDUCE size before : {}", self.path_coords.len());
 
 	    self.path_coords =  Path::_reduce_search_space(&self.path_coords);
-	    //self.reduced = true;
 	   
 	    eprintln!("REDUCE size after : {}", self.path_coords.len());
 	    panic!("REDUCED should be avoided");
@@ -636,7 +547,6 @@ impl Path {
 	    //add new possible coord for each paths
 	    //adv can make a 0 move
 
-	    //p_coords_l.push((*freq, v.to_vec()));
 	    p_coords_l.push(PathElem {freq:pel.freq, coords:pel.coords.to_vec(), mines:pel.mines.to_vec()});
 	   
 	    
@@ -651,12 +561,9 @@ impl Path {
 			{
 			    if !cur_path.contains(&c_valid) {
 				//if c_valid is in v, this means a cross between path -> invalid
-				
 				cur_path.push(c_valid);
-
-				//p_coords_l.push((PATH_INIT - 2*(i-1),cur_path.to_vec())); //explicit copy
 				let new_freq:f64 = (pel.freq)*(((10-2*i) as f64)/10.0);
-				//let new_freq:f64 = pel.freq;
+
 				p_coords_l.push(PathElem {freq:new_freq, coords:cur_path.to_vec(), mines:pel.mines.to_vec()}); //explicit copy
 				cur_pos = c_valid;
 
@@ -677,14 +584,13 @@ impl Path {
     
     fn process_move(&mut self, d: Direction) {
 	eprintln!("Process MOVE");
-
 	
 	if self.path_coords.is_empty() {
 	    eprintln!("+-+-----+++-+ path coords empty, initialize");
 	    for x in 0..MAX_X {
 		for y in 0..MAX_Y {
 		    if self.board.grid[x as usize][y as usize] == 10 {
-			continue; //Do not add the island
+			continue; //Do not add the islands
 		    }
 		    self.path_coords.push(PathElem {freq:PATH_INIT, coords:vec![Coordinate {x:x, y:y}], mines:Vec::<Coordinate>::new()});
 		}
@@ -768,7 +674,7 @@ impl Path {
     fn process_previous_actions(&mut self, va_issued:&Vec<Action>, va_opp_issued:&Vec<Action>, diff_life_arg:u8) {
 
 	let mut diff_life = diff_life_arg;
-	//ok tricky, if the opponement made an action that reduce it's life we need take it into account
+	//ok tricky, if the opponement made an action that reduce it's life we need to take it into account
 
 	//if we have torpedo in both actions, we cannot say anothing
 	if diff_life_arg !=0 && va_issued.iter().any(|v| v.ac == Action_type::TORPEDO) && va_opp_issued.iter().any(|v| v.ac == Action_type::TORPEDO) {
@@ -779,8 +685,6 @@ impl Path {
 	    eprintln!("Torpedo + trigger in previous action, don't update");
 	    return
 	}
-
-	
 	
 	let mut coord_torpedo = Coordinate {x:0,y:0};
 	if  va_issued.iter().any(|v| {coord_torpedo = v.coord; v.ac == Action_type::TORPEDO || v.ac == Action_type::TRIGGER}) {
@@ -790,7 +694,6 @@ impl Path {
 		eprintln!("== correction with surface");
 	    }
 	    eprintln!("Found torpedo or trigger previous");
-	    //let diff = self.op_life[self.op_life.len() - 2] - *self.op_life.last().unwrap();
 	    match  diff_life {
 		1 => {
 		    eprintln!("torp touch 1! coord {:?}", coord_torpedo);
@@ -865,10 +768,7 @@ impl Simulator {
     fn play_ac_l(&self, va:&Vec::<Action>) -> Option<(Simulator)> {
 	let mut sim_sim = self.clone();
 
-	
-	//for a in va {
-	//va.retain(|&a| {
-	    for a in va {
+	for a in va {
 	    match a.ac {
 		Action_type::MOVE => {
 		    match sim_sim.board.check_dir(&sim_sim.play_c, &a.dir) {
@@ -882,10 +782,8 @@ impl Simulator {
 				Action_type::MINE => sim_sim.mine_v = cmp::min(sim_sim.mine_v+1, 3),
 				_ => panic!("Error, must be torpedo, silence or mine"),
 			    }
-			    //return true
-			    //ret_va.push(*a);
 			},
-			None    => return None,//continue,
+			None    => return None,
 		    }
 		},
 	    
@@ -895,30 +793,19 @@ impl Simulator {
 		},
 		Action_type::TORPEDO => {
 
-		    //eprintln!("Torp val co {:?}, vec {:?}", a.coord, sim_sim.board.get_torpedo_pos_from_coord(&a.coord));
-
-
 		    if sim_sim.torpedo_v < 3 {
-			//eprintln!("no torpedo {}", sim_sim.torpedo_v);
 			return None;
 		    }
 		    
 		    if sim_sim.play_c.dist(&a.coord) > 4 {
-			//first verif
-			//eprintln!("to long {:?}", a.coord);
 			return None;
 		     }
 		    
 		    let list_torps = sim_sim.board.get_torpedo_pos_from_coord(&sim_sim.play_c);
-		    //eprintln!("Size list {:?} {}", sim_sim.play_c, list_torps.len());
-		    //if sim_sim.play_c.dist(&a.coord) > 4 {
 		    if !list_torps.contains(&a.coord) {
-			//eprintln!("to long {:?}", a.coord);
 			return None;
 		    }
 
-
-		    //eprintln!("ok torpedo {:?} {:?} {:?} {} {}", a.coord, sim_sim.adv_c, sim_sim.play_c, a.coord.dist(&sim_sim.adv_c),a.coord.l2_dist(&sim_sim.adv_c) );
 		    sim_sim.torpedo_v = 0;
 		    if a.coord.dist(&sim_sim.adv_c) == 0 {
 			sim_sim.adv_lost = 2;
@@ -933,38 +820,28 @@ impl Simulator {
 		    else if a.coord.l2_dist(&sim_sim.play_c) == 1 {
 			sim_sim.play_lost = 1;
 		    }
-
-		    //return true
-		    //ret_va.push(*a);
 		    
 		}
-		Action_type::SONAR => continue, //return None,
+		Action_type::SONAR => continue,
 		Action_type::SILENCE => {
-		    //let mut exit = false;
 		    if sim_sim.silence_v < 6 {
 			return None
 		    }
 
 		    let mut loc_pc:Coordinate = sim_sim.play_c;
 		    for _ in 0..a.sector {
-			//eprintln!("beg Action pass {}",i);
 			match sim_sim.board.check_dir(&loc_pc, &a.dir) {
 			    Some(c_valid) => loc_pc = c_valid,
-			    None    => /*{exit=true; break;},*/ return None,
+			    None    => return None,
 			}
 		    }
-		   /* if exit{
-			continue;
-		    }*/
 		    //ok here we tested all coords and it's OK, now write on the board
 		    for _ in 0..a.sector {
-			//eprintln!("beg Action OK {}",i);
 			match sim_sim.board.check_dir(&sim_sim.play_c, &a.dir) {
 			    
 			    Some(c_valid) => {
 				sim_sim.board.set_visited(&c_valid);
 				sim_sim.play_c = c_valid;
-				//eprintln!("Action OK {}",i);
 			    },
 			    None    => panic!("Can't happen !!"),
 			}
@@ -999,12 +876,10 @@ impl Simulator {
 		    sim_sim.my_mines.list_mines.insert(mine_coord);
 		    
 		    sim_sim.mine_v = 0;
-		    //ret_va.push(*a);
 		},
-		Action_type::TRIGGER => continue, //return None,	
+		Action_type::TRIGGER => continue,
 	    }	    
 	}
-	//eprintln!("ret val {}",sim_sim.adv_lost);
 	if sim_sim.play_life as i32 - sim_sim.play_lost as i32 <= 0 { //if we loose, bad action...
 	    None
 	}
@@ -1045,8 +920,6 @@ impl Simulator {
 	let dc = self.board.get_diag_coord(&self.play_c);
 
 	let avoid_mines:f64 = dc.iter().map(|&c| self.adv_mines.grid_probas[c.x as usize][c.y as usize]).sum();
-	//eprintln!("Avoid mines {} {:?}",30.0*avoid_mines,self.play_c);
-	//let avoid_mines = self.adv_mines.grid_probas
 	return po as f64 + maxim as f64 - (mx-my).abs() + mines - 30.0*avoid_mines;
     }
 
@@ -1055,9 +928,7 @@ impl Simulator {
 	let mut v_sil =  Vec::<Action>::new();
 	let mut v_mines =  Vec::<Action>::new();
 	
-	//let surf_ac = Action { ac: Action_type::SURFACE, sector:self.play_c.to_surface(), ..Default::default() };
-	
-	let mut ret_val_std = None; //:Option::<(Vec::<Action>, Simulator)> = None;
+	let mut ret_val_std = None;
 
 	let mut max_op = 0.0;
 	
@@ -1109,90 +980,11 @@ impl Simulator {
 	    }
 	}
 
-
-
-	/*for a in &v_sil{
-	    
-	    let v_try = vec![*a];
-	    match self.play_ac_l(&v_try)
-	    {
-		Some(sim) => {
-		    let ev_f = sim.eval_func_move();
-		    if ev_f > max_op {
-			max_op = ev_f;
-			ret_val_std = Some((v_try, sim));
-		    }
-		}
-		None => continue,
-		
-	    }
-	}
-
-	
-	for a in &v_sil{
-	    for m in &v_mines{
-		let v_try = vec![*a, *m];
-		match self.play_ac_l(&v_try)
-		{
-		    Some(sim) => {
-			let ev_f = sim.eval_func_move();
-			if ev_f > max_op {
-			    max_op = ev_f;
-			    ret_val_std = Some((v_try, sim));
-			}
-		    }
-		    None => continue,
-		}
-	    }
-	}
-	
-	for am in &v_move{
-	    for a in &v_sil{
-		for m in &v_mines{
-		let v_try = vec![*am,*a,*m];
-		    match self.play_ac_l(&v_try)
-		    {
-			Some(sim) => {
-			    let ev_f = sim.eval_func_move();
-			    if ev_f > max_op {
-				max_op = ev_f;
-				ret_val_std = Some((v_try, sim));
-			    }
-			}
-			None => continue,
-		    }
-		}
-	   }
-	}
-
-	for am in &v_move{
-	    for a in &v_sil{
-		
-		let v_try = vec![*am,*a];
-		match self.play_ac_l(&v_try)
-		{
-		    Some(sim) => {
-			let ev_f = sim.eval_func_move();
-			if ev_f > max_op {
-			    max_op = ev_f;
-			    ret_val_std = Some((v_try, sim));
-			}
-		    }
-		    None => continue,
-		}
-	    }
-	    
-	}*/
-	
-	
-
 	ret_val_std
     }
 
     
     fn compute_best_sequence(&self, m_play:&MinesMng, m_adv:&MinesMng) -> Option<(Vec::<Action>, Simulator)> {
-	
-	//let mut v_ret =  Vec::<Action>::new();
 	
 	let mut v_move = Vec::<Action>::new();
 	let mut v_sil =  Vec::<Action>::new();
@@ -1203,7 +995,6 @@ impl Simulator {
 	for d in &[Direction::N, Direction::S, Direction::W, Direction::E] {
 	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::TORPEDO, ..Default::default() });
 	    v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::SILENCE, ..Default::default() });
-	    //v_move.push(Action { ac: Action_type::MOVE, dir:*d, ac_load:Action_type::MINE, ..Default::default() });
 	    
 	    for i in 1..5 {
 		v_sil.push(Action { ac: Action_type::SILENCE, dir:*d, sector:i, ..Default::default() });
@@ -1220,8 +1011,6 @@ impl Simulator {
 
 	let mut max_op = 0.0;
 	let mut ret_val:Option::<(Vec::<Action>, Simulator)> = None;
-
-
 
 	for a in &v_torp {
 	    let v_try = vec![*a];
@@ -1319,7 +1108,6 @@ impl  MinesMng  {
 	self.list_mines.retain(|mc| {
 	    if mc.l2_dist(c) <= 1 {
 		retval=Some(*mc);
-		//v_act.push(Action { ac: Action_type::TRIGGER, coord:*mc, ..Default::default() });
 		false
 	    } else {
 		true
@@ -1328,8 +1116,6 @@ impl  MinesMng  {
 	retval
     }
 
-    
-    
     //reduce possible mines to freq to coordinate
     fn update_mines_prob(&mut self, v:&Vec::<PathElem>)  {
 	let mut frequency: HashMap<&Coordinate, f64> = HashMap::new();
@@ -1348,9 +1134,6 @@ impl  MinesMng  {
 
 	eprintln!("Mines situations");
 	eprintln!("Num poss mines {}", frequency.len());
-/*	for (co_m,freq) in &frequency {
-	    eprintln!("Mines : {:?} freq : {}", co_m, freq);
-	}*/
     }
 
     
@@ -1393,23 +1176,14 @@ impl  Predictor  {
 		
 	let mut reduced_v = Path::_reduce_search_space(&path.path_coords);
 	reduced_v.sort_unstable_by(|pela, pelb| pelb.freq.partial_cmp(&pela.freq).unwrap()); //reverse sort
-
-	
-
-	//path.mines_m.update_mines_prob(&path.path_coords);
-//	reduced_mines.sort_unstable_by(|(fa,_), (fb,_)| fb.partial_cmp(fa).unwrap()); //reverse sort
-
 	
 	eprintln!("Num possible coord {}", reduced_v.len());
 	eprintln!("Num possible path {}", path.path_coords.len());
 
 	//try to keep only the maximum confidences
-	//let (max_freq, _) =  reduced_v.iter().max_by_key(|(x,_)| x).unwrap(); 
-
 
 	let max_freq:f64 = reduced_v[cmp::min(reduced_v.len()-1, reduced_v.len()-1) as usize].freq;
 	eprintln!("Max k-{} max_freq : {}", cmp::min(4, reduced_v.len()-1), max_freq);
-	
 	
 	let mut xm:f64 = -1.0;
 	let mut ym:f64 = -1.0;
@@ -1439,13 +1213,6 @@ impl  Predictor  {
 
 	let round_coord = Coordinate {x:xm.round() as u8, y:ym.round() as u8};
 
-	//eprintln!("Possible mines : {}",reduced_mines.len());
-	/*for (f,c) in reduced_mines {
-		      eprintln!("Freq {}, coo : {:?}",f,c)
-	    
-	}*/
-	    
-	
 	eprintln!("round {:?}", round_coord);
 	if reduced_v.len() < 10
 	{
@@ -1459,13 +1226,11 @@ impl  Predictor  {
     }
 
     
-    //to do dont print!
+
     fn get_actions_to_play(&mut self) -> Vec::<Action> {
 	eprintln!("Torpedo val {}",self.torpedo);
 	let mut v_act = Vec::<Action>::new();
 	let mut v_act_move = Vec::<Action>::new();
-	//let e = self.play_board.num_avail_pos(&self.cur_co);
-
 	    
 	    let mut proba_my = 0.0;
 	    
@@ -1476,7 +1241,6 @@ impl  Predictor  {
 		proba_my = proba_my_loc;
 		eprintln!("mynpos proba {}", proba_my);
 		
-	
 		let (n_pos, coord_mean, variance, prob, max_prob_coord) = self.get_possible_pos(&self.path);
 		let coord = max_prob_coord;
 		eprintln!("*** ADV possible pos np: {}, var: {:?}, prob : {}", n_pos, variance, prob);
@@ -1506,12 +1270,6 @@ impl  Predictor  {
 					   prob,
 					   *self.my_life.last().unwrap(),
 					   *self.op_life.last().unwrap());
-
-
-
-		
-		//simul.simule_random(&self.my_path.mines_m, false);
-//		eprintln!("NB : {}", simul.get_possible_actions(false).len());
 
 		let mut next_sim = simul.clone();
 		match simul.compute_best_sequence(&self.my_path.mines_m, &self.path.mines_m) {
@@ -1566,11 +1324,8 @@ impl  Predictor  {
 		self.silence = 0;
 	    }
 	}
-	//eprintln!("==== STAT {:?}",self.play_board.get_visited_stat());
-	
 
-
-	if v_act.is_empty() { // && !dir.is_empty(){ //for the firsts rounds
+	if v_act.is_empty() { //for the firsts rounds
 	    let (_, dir) = self.play_board._rec_best_path(&self.cur_co, &mut [[false; MAX_X as usize]; MAX_Y as usize]);
 	    let next_dir = *dir.front().unwrap();
 
@@ -1581,42 +1336,7 @@ impl  Predictor  {
 	    self.torpedo = cmp::min(self.torpedo,3);
 		
 	}
-	    
-	  
-	 /*   if !v_act.iter().any(|&x| x.ac == Action_type::SILENCE) && self.silence == 6 && proba_my > 0.8 {
-		eprintln!("He found me, silence !!");
-		v_act.push(Action { ac: Action_type::SILENCE, dir:next_dir, sector:1, ..Default::default() });
-		self.silence = 0;
-	    }
-	    
-	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE) && self.torpedo < 3 {
-		    v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::TORPEDO, ..Default::default() });
 		
-		    self.torpedo += 1;
-		    self.torpedo = cmp::min(self.torpedo,3);
-		
-	    }
-	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE) && self.silence < 6 {
-		v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::SILENCE, ..Default::default() });
-		
-		self.silence += 1;
-		self.silence = cmp::min(self.silence,6);
-	    }
-	    else if !v_act.iter().any(|&x| x.ac == Action_type::MOVE) && self.mines < 3 {
-		v_act.push(Action { ac: Action_type::MOVE, dir:next_dir, ac_load:Action_type::MINE, ..Default::default() });
-		
-		self.mines += 1;
-		self.mines = cmp::min(self.mines,3);
-		
-	    }
-
-	}*/
-/*	if v_act.is_empty() { //ok no action so surface
-	    self.play_board.rem_visited();
-	    eprintln!("SURFACE, sector {}",self.cur_co.to_surface());
-	    v_act.push(Action { ac: Action_type::SURFACE, sector:self.cur_co.to_surface(), ..Default::default() });
-	    //println!("{}SURFACE",add_str)
-	}*/
 	self.actions_issued = v_act.to_vec(); //copy here
 	v_act
     }
@@ -1640,7 +1360,6 @@ impl  Predictor  {
 	}
 
     }
-
 
 }
 macro_rules! parse_input {
@@ -1670,17 +1389,11 @@ fn main() {
 
     }
 
-
-    
-	
-    let board = Board::new(&vec);  //ok dont use now board because value are copied on predictor
+    let board = Board::new(&vec);  //ok dont use this Board since values are copied on the predictor
     let mut predictor = Predictor::new(board);
-
-
 
     let st = board.initial_position();
     println!("{} {}",st.x,st.y);
-
     
     // game loop
     loop {
@@ -1702,12 +1415,7 @@ fn main() {
         io::stdin().read_line(&mut input_line).unwrap();
         let opponent_orders = input_line.trim_end().to_string();
 
-        // Write an action using println!("message...");
-        // To debug: eprintln!("Debug message...");
-
 	let start = Instant::now();
-    
-	
 	
 	predictor.update_situation(opp_life as u8, my_life as u8, x as u8, y as u8, &Action::parse_raw(&opponent_orders));
 	predictor.path.process_actions(&Action::parse_raw(&opponent_orders));
